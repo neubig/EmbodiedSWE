@@ -171,7 +171,7 @@ class LocoPolicyController(BaseController):
                 f"{tuple(out.shape)[1]}. Re-vendor with robots/assets/fetch_g1_locomotion.py"
             )
 
-        self._offset = art.data.default_joint_pos[:, self.joint_ids].clone()
+        self._offset = art.data.default_joint_pos.torch[:, self.joint_ids].clone()
         self._last_action = torch.zeros(robot.env.num_envs, len(self.joint_ids), device=device)
         clip = torch.tensor(self.cfg.command_clip, dtype=torch.float32, device=device)  # (4, 2)
         self._clip_lo, self._clip_hi = clip[:, 0], clip[:, 1]

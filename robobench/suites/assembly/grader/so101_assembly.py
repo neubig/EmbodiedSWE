@@ -79,8 +79,8 @@ class SO101AssemblyGrader(BaseGrader):
 
         s, c = self.scene, self.scene.cfg
         ap, aq = s.upper_arm_pose()
-        return (((s.motor.data.root_pos_w - ap).norm(dim=-1) < c.motor_align_pos)
-                & (quat_error_magnitude(s.motor.data.root_quat_w, aq)
+        return (((s.motor.data.root_pos_w.torch - ap).norm(dim=-1) < c.motor_align_pos)
+                & (quat_error_magnitude(s.motor.data.root_quat_w.torch, aq)
                    < math.radians(c.motor_align_deg)))
 
     def _fork_seated(self):

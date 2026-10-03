@@ -339,14 +339,14 @@ class PushShapesScene(BaseScene):
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         state: dict[str, Any] = {"flags": self._flags[env_ids].clone()}
         for key in PIECES:
-            state[f"block_{key}"] = self.blocks[key].data.root_state_w[env_ids].clone()
-            state[f"pad_{key}"] = self.pads[key].data.root_state_w[env_ids].clone()
+            state[f"block_{key}"] = self.blocks[key].data.root_state_w.torch[env_ids].clone()
+            state[f"pad_{key}"] = self.pads[key].data.root_state_w.torch[env_ids].clone()
         return state
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         for key in PIECES:
-            self.blocks[key].write_root_state_to_sim(state[f"block_{key}"], env_ids)
-            self.pads[key].write_root_state_to_sim(state[f"pad_{key}"], env_ids)
+            self.blocks[key].write_root_state_to_sim(state[f"block_{key}"], env_ids=env_ids)
+            self.pads[key].write_root_state_to_sim(state[f"pad_{key}"], env_ids=env_ids)
         if "flags" in state:
             self._flags[env_ids] = state["flags"].to(self._flags.device)
 
@@ -369,20 +369,20 @@ class PushShapesScene(BaseScene):
     # ----- per-piece measurements -----------------------------------------------------
     def position_error(self, key: str) -> torch.Tensor:
         """Planar centre distance between one block and its pad, in metres."""
-        block = self.blocks[key].data.root_pos_w[:, :2]
-        pad = self.pads[key].data.root_pos_w[:, :2]
+        block = self.blocks[key].data.root_pos_w.torch[:, :2]
+        pad = self.pads[key].data.root_pos_w.torch[:, :2]
         return (block - pad).norm(dim=1)
 
     def orientation_error(self, key: str) -> torch.Tensor:
         """Shortest full 3-D quaternion error between one block and its pad, in radians."""
         dot = (
-            self.blocks[key].data.root_quat_w * self.pads[key].data.root_quat_w
+            self.blocks[key].data.root_quat_w.torch * self.pads[key].data.root_quat_w.torch
         ).sum(dim=1)
         return 2.0 * torch.acos(dot.abs().clamp(max=1.0))
 
     def block_bottom_z(self, key: str) -> torch.Tensor:
         """Height of the block's underside above the env origin."""
-        local_z = (self.blocks[key].data.root_pos_w - self.env_origins)[:, 2]
+        local_z = (self.blocks[key].data.root_pos_w.torch - self.env_origins)[:, 2]
         return local_z - self.cfg.block_half_height * self.cfg.piece_scale
 
     def not_lifted(self, key: str) -> torch.Tensor:

@@ -85,9 +85,9 @@ def main() -> None:
     hand_ids = env.robot.controller.controllers[1].joint_ids  # the hand JointController's DOFs
 
     env.reset()
-    a0 = art.data.body_link_state_w[:, ai, :7].clone()  # approach-wrist start pose (hold orientation)
-    h0 = art.data.body_link_state_w[:, hi, :7].clone()  # holding-wrist start pose (held)
-    hands0 = art.data.joint_pos[:, hand_ids].clone()
+    a0 = art.data.body_link_state_w.torch[:, ai, :7].clone()  # approach-wrist start pose (hold orientation)
+    h0 = art.data.body_link_state_w.torch[:, hi, :7].clone()  # holding-wrist start pose (held)
+    hands0 = art.data.joint_pos.torch[:, hand_ids].clone()
     hold_pos = h0[:, :3] - origins
 
     # Pink-IK frames are ordered (left, right); the action is [left pose, right pose, hands].
@@ -100,7 +100,7 @@ def main() -> None:
 
     cur_tgt = (a0[:, :3] - origins).clone()  # start at the current wrist -> no initial jump
     for _ in range(args.steps):
-        goal = scene.legs[args.leg].data.root_pos_w - origins  # leg in env frame
+        goal = scene.legs[args.leg].data.root_pos_w.torch - origins  # leg in env frame
         goal[:, 2] += args.hover  # hover above the leg
         delta = goal - cur_tgt
         cur_tgt = cur_tgt + delta * (args.max_step / delta.norm(dim=-1, keepdim=True).clamp_min(1e-6)).clamp(max=1.0)

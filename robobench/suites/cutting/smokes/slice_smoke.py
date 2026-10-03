@@ -92,8 +92,8 @@ def main() -> None:
 
     def live_plane(idx):
         """Env-0 world xy of the plane's flesh centre + blade yaw, in the LIVE food frame."""
-        rq = scene.pieces[ref_i].data.root_quat_w[0]
-        rp = scene.pieces[ref_i].data.root_pos_w[0]
+        rq = scene.pieces[ref_i].data.root_quat_w.torch[0]
+        rp = scene.pieces[ref_i].data.root_pos_w.torch[0]
         R = _rotmat(rq)
         world = rp + R @ (scene._plane_aims[idx] - ref_cent)
         nx = R @ torch.tensor([1.0, 0.0, 0.0], device=device)

@@ -72,16 +72,16 @@ def main() -> None:
     for i in range(1, END + 1):
         if i == SHOW_END:  # stage each bulb upright (cap-down) just above its socket's bore mouth
             for k, bulb in enumerate(scene.bulbs):
-                socket_pos = scene.sockets[k].data.root_pos_w  # (n, 3), already world (incl. env origin)
+                socket_pos = scene.sockets[k].data.root_pos_w.torch  # (n, 3), already world (incl. env origin)
                 st = torch.zeros(n, 13, device=device)
                 st[:, 0:3] = socket_pos
                 st[:, 2] += stage_gap
-                st[:, 3] = 1.0  # identity quat -> cap/thread down, screw axis up, aligned with the socket
-                bulb.write_root_state_to_sim(st, all_ids)
+                st[:, 6] = 1.0  # native XYZW identity -> cap/thread down, screw axis up
+                bulb.write_root_state_to_sim(st, env_ids=all_ids)
         elif SHOW_END < i < ASSEMBLE_END:  # press + hold-on-axis + capped twist to screw each bulb in
             for k, bulb in enumerate(scene.bulbs):
-                socket_xy = scene.sockets[k].data.root_pos_w[:, :2]
-                pos, lin, w = bulb.data.root_pos_w, bulb.data.root_lin_vel_w, bulb.data.root_ang_vel_w
+                socket_xy = scene.sockets[k].data.root_pos_w.torch[:, :2]
+                pos, lin, w = bulb.data.root_pos_w.torch, bulb.data.root_lin_vel_w.torch, bulb.data.root_ang_vel_w.torch
                 f = torch.zeros(n, 3, device=device)
                 f[:, :2] = KP_XY * (socket_xy - pos[:, :2]) - KD_XY * lin[:, :2]  # hold the bulb on the socket axis
                 f[:, 2] = PRESS
@@ -92,13 +92,13 @@ def main() -> None:
         env.step(no_action, render=render)  # NullRobot ignores the action
 
         if i % 150 == 0:  # progress: bulb0 height above its socket origin across ALL envs (min/mean/max, mm)
-            h = (scene.bulbs[0].data.root_pos_w - scene.sockets[0].data.root_pos_w)[:, 2] * 1e3
+            h = (scene.bulbs[0].data.root_pos_w.torch - scene.sockets[0].data.root_pos_w.torch)[:, 2] * 1e3
             print(f"  step {i:4d} | height mm: min={h.min():+.1f} mean={h.mean():+.1f} max={h.max():+.1f}", flush=True)
 
     # Verdict across ALL envs: how many fully seated, and the spread of final bulb0 heights above the
     # socket origin (consistent threading -> all near the seated depth; flaky -> a wide spread / some high).
     seated = scene.seated()  # (num_envs, num_pairs)
-    h0 = (scene.bulbs[0].data.root_pos_w - scene.sockets[0].data.root_pos_w)[:, 2] * 1e3
+    h0 = (scene.bulbs[0].data.root_pos_w.torch - scene.sockets[0].data.root_pos_w.torch)[:, 2] * 1e3
     print(f"BULB-ASSEMBLY | seated {int(seated.all(dim=1).sum())}/{n} envs | seat_z={scene.cfg.seat_z * 1e3:.0f}mm "
           f"| bulb0 height mm: min={h0.min():+.1f} mean={h0.mean():+.1f} max={h0.max():+.1f}", flush=True)
     close_and_exit(env, app)

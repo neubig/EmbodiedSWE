@@ -95,7 +95,7 @@ class Arm:
             num_envs=1,
             device=device,
         )
-        self.limits = art.data.joint_pos_limits.torch[:, self.arm_ids, :]
+        self.limits = art.data.joint_pos.torch_limits.torch[:, self.arm_ids, :]
         self.q_ref: torch.Tensor | None = None
 
     def hand_pose_w(self) -> tuple[torch.Tensor, torch.Tensor]:

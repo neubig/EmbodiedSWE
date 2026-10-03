@@ -65,7 +65,7 @@ class ClearOrganicObjectsGrader(BaseGrader):
     def _bin_upright(self):
         """(num_envs,) bool: the bin's body +z within its topple angle of world-up.
         R[2,2] of a (w, x, y, z) quaternion is 1 - 2 (x^2 + y^2)."""
-        q = self.scene.bin.data.root_quat_w
+        q = self.scene.bin.data.root_quat_w.torch
         up_z = 1.0 - 2.0 * (q[:, 1] ** 2 + q[:, 2] ** 2)
         return up_z >= self._upright_cos
 

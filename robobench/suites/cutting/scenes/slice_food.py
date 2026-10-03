@@ -375,13 +375,13 @@ class SliceFoodScene(BaseScene):
             st[:, 0:3] = origin + torch.tensor((px, py, pz + food_z), device=dev)
             st[:, 0:2] += jit
             st[:, 3:7] = qf
-            pc.write_root_state_to_sim(st, env_ids)
+            pc.write_root_state_to_sim(st, env_ids=env_ids)
         # the knife back on its rest
         root, _, _ = self._rest_layout()
         ks = torch.zeros(m, 13, device=dev)
         ks[:, 0:3] = origin + torch.tensor(root, device=dev)
         ks[:, 3:7] = torch.tensor(c.knife_rot, device=dev)
-        self.knife.write_root_state_to_sim(ks, env_ids)
+        self.knife.write_root_state_to_sim(ks, env_ids=env_ids)
         self._reconcile_cuts(env_ids, torch.zeros(m, len(self.planes), dtype=torch.bool, device=dev))
 
     def post_step(self, env_ids: torch.Tensor | None = None) -> None:
@@ -391,15 +391,15 @@ class SliceFoodScene(BaseScene):
     # ----- state ----------------------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         return {
-            "pieces": torch.stack([p.data.root_state_w[env_ids].clone() for p in self.pieces], dim=1),
-            "knife": self.knife.data.root_state_w[env_ids].clone(),
+            "pieces": torch.stack([p.data.root_state_w.torch[env_ids].clone() for p in self.pieces], dim=1),
+            "knife": self.knife.data.root_state_w.torch[env_ids].clone(),
             "cut": self.cut[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         for k, pc in enumerate(self.pieces):
-            pc.write_root_state_to_sim(state["pieces"][:, k], env_ids)
-        self.knife.write_root_state_to_sim(state["knife"], env_ids)
+            pc.write_root_state_to_sim(state["pieces"][:, k], env_ids=env_ids)
+        self.knife.write_root_state_to_sim(state["knife"], env_ids=env_ids)
         self._reconcile_cuts(env_ids, state["cut"])
 
     # ----- description / observables --------------------------------------------------------
@@ -451,11 +451,11 @@ class SliceFoodScene(BaseScene):
         dev = self.env.device
         n = self.env.num_envs
         ref = self.pieces[len(self.pieces) // 2]
-        rp, rq = ref.data.root_pos_w, ref.data.root_quat_w
+        rp, rq = ref.data.root_pos_w.torch, ref.data.root_quat_w.torch
         ref_cent = torch.tensor(self._cents[len(self.pieces) // 2], device=dev)
 
-        kp = self.knife.data.root_pos_w
-        kq = self.knife.data.root_quat_w
+        kp = self.knife.data.root_pos_w.torch
+        kq = self.knife.data.root_quat_w.torch
         # the real edge, all samples into world: (n, N, 3)
         N = self._edge_local.shape[0]
         kq_rep = kq.unsqueeze(1).expand(n, N, 4).reshape(-1, 4)
@@ -467,11 +467,11 @@ class SliceFoodScene(BaseScene):
 
         settled = torch.ones(n, dtype=torch.bool, device=dev)
         for pc in self.pieces:
-            settled &= pc.data.root_lin_vel_w.norm(dim=-1) < c.food_settle_speed
+            settled &= pc.data.root_lin_vel_w.torch.norm(dim=-1) < c.food_settle_speed
         # release only while the blade PRESSES, never while it rises out of the kerf —
         # otherwise a press that keeps the food above the settle speed releases at lift
         # start instead, and the split appears while the knife is already in the air
-        pressing = self.knife.data.root_lin_vel_w[:, 2] < c.press_vz_max
+        pressing = self.knife.data.root_lin_vel_w.torch[:, 2] < c.press_vz_max
 
         cos_tol = math.cos(math.radians(c.blade_align_deg))
         target = self.cut.clone()

@@ -41,18 +41,22 @@ class SimCfg:
     dt: float = 0.01
     physx: dict[str, Any] = field(default_factory=lambda: {"solver_type": 1})
     gravity: tuple[float, float, float] = (0.0, 0.0, -9.81)
-    # kwargs splatted into isaaclab's `RenderCfg` (like `physx` -> `PhysxCfg`). Empty -> RTX defaults.
-    # A scene with glass/translucent parts sets `{"enable_translucency": True}` or it renders invisible.
+    # kwargs for Lab 3's renderer-owned `IsaacRtxRendererGlobalSettingsCfg`. Empty -> RTX defaults.
+    # EnvCfg passes these separately because SimulationCfg no longer owns a RenderCfg in Lab 3.
     render: dict[str, Any] = field(default_factory=dict)
 
     def to_isaaclab(self, device: str) -> Any:
-        """Build the isaaclab `SimulationCfg` (needs AppLauncher running)."""
+        """Build the Isaac Lab 3 physics simulation config (needs AppLauncher running)."""
         import isaaclab.sim as sim_utils
+        from isaaclab_physx.physics import PhysxCfg
 
-        return sim_utils.SimulationCfg(
-            device=device, dt=self.dt, gravity=self.gravity, physx=sim_utils.PhysxCfg(**self.physx),
-            render=sim_utils.RenderCfg(**self.render),
-        )
+        kwargs: dict[str, Any] = {
+            "device": device,
+            "dt": self.dt,
+            "gravity": self.gravity,
+            "physics": PhysxCfg(**self.physx),
+        }
+        return sim_utils.SimulationCfg(**kwargs)
 
 
 # ----- EnvCfg: the runnable-env binding ---------------------------------------------------------
@@ -112,10 +116,9 @@ class EnvCfg:
         first (e.g. `build(num_envs=16, device="cuda:0", control_mode="pink_ik")`)."""
         cfg = replace(self, **overrides) if overrides else self
 
+        from .assets import ensure_assets, scene_asset_groups
         from .env import BaseEnv
         from .registries import ROBOTS, SCENES
-
-        from .assets import ensure_assets, scene_asset_groups
         from .rooms import prepare_room
 
         scene_cls = SCENES.get(cfg.scene)
@@ -151,6 +154,7 @@ class EnvCfg:
             room=room,
             device=cfg.device,
             seed=cfg.seed,
+            renderer_settings=sim.render,
         )
 
 

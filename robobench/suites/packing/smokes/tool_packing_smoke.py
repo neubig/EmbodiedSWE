@@ -242,18 +242,18 @@ def main() -> None:
     def _world_pts(entry) -> torch.Tensor:
         kind, ref, grid = entry
         if kind == "link":
-            p = scene.box.data.body_pos_w[0, ref]
-            q = scene.box.data.body_quat_w[0, ref]
+            p = scene.box.data.body_pos_w.torch[0, ref]
+            q = scene.box.data.body_quat_w.torch[0, ref]
         else:
-            p = ref.data.root_pos_w[0]
-            q = ref.data.root_quat_w[0]
+            p = ref.data.root_pos_w.torch[0]
+            q = ref.data.root_quat_w.torch[0]
         return p + _qa(q.expand(len(grid), 4), grid)
 
     def _check_separation(at_frame: bool) -> None:
         """Track the worst MARGIN = sdf + slab allowance (negative = beyond what that
         slab's thickness/rest tolerances explain = a real crossing) plus the raw min."""
-        pos = scene.box.data.body_pos_w[0]
-        quat = scene.box.data.body_quat_w[0]
+        pos = scene.box.data.body_pos_w.torch[0]
+        quat = scene.box.data.body_quat_w.torch[0]
         bbody = _B(c.box_body)
         worst_m, worst_v, worst_pair = float("inf"), float("inf"), ""
 
@@ -295,7 +295,7 @@ def main() -> None:
                     st[:, 0:7] = pose
                     # cancel gravity integration: a zero-velocity re-pin free-falls g*dt
                     st[:, 9] = 9.81 * env.sim.get_physics_dt()
-                    scene.items[name].write_root_state_to_sim(st, all_ids)
+                    scene.items[name].write_root_state_to_sim(st, env_ids=all_ids)
             env.step(no_action)
             at_frame = annot is not None and step_i % args.record_every == 0
             _check_separation(at_frame)
@@ -317,11 +317,11 @@ def main() -> None:
     def set_joint(j_col: int, target: float, ramp: int = 60) -> None:
         """Sweep ONE articulation joint to `target` with incremental state writes (the
         passive drives then hold it: damping, no stiffness)."""
-        start = float(scene.box.data.joint_pos[0, j_col])
+        start = float(scene.box.data.joint_pos.torch[0, j_col])
         for k in range(ramp):
             a = (k + 1) / ramp
-            jp = scene.box.data.joint_pos.clone()
-            jv = scene.box.data.joint_vel.clone()
+            jp = scene.box.data.joint_pos.torch.clone()
+            jv = scene.box.data.joint_vel.torch.clone()
             jp[:, j_col] = start + (target - start) * a
             jv[:, j_col] = 0.0
             scene.box.write_joint_state_to_sim(jp, jv, env_ids=all_ids)
@@ -356,8 +356,8 @@ def main() -> None:
         from isaaclab.utils.math import quat_mul
 
         b = scene._drawer_b[d]
-        bp = scene.box.data.body_pos_w[:, b]
-        bq = scene.box.data.body_quat_w[:, b]
+        bp = scene.box.data.body_pos_w.torch[:, b]
+        bq = scene.box.data.body_quat_w.torch[:, b]
         target = torch.tensor((0.0, DROP_Y[name], 0.0), device=device).expand(n, 3)
         half = DROP_YAW[name] / 2
         qz = torch.tensor((math.cos(half), 0.0, 0.0, math.sin(half)), device=device).expand(n, 4)
@@ -399,8 +399,8 @@ def main() -> None:
         """Every item's position in its ASSIGNED drawer's frame vs the tray box."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        pos = scene.box.data.body_pos_w
-        quat = scene.box.data.body_quat_w
+        pos = scene.box.data.body_pos_w.torch
+        quat = scene.box.data.body_quat_w.torch
         print("[smoke]   links: " + " ".join(
             f"{nm}@z={pos[0, k, 2]:.3f}" for k, nm in enumerate(scene.box.body_names)), flush=True)
         print(f"[smoke]   joint order: {scene.box.joint_names} "
@@ -409,11 +409,11 @@ def main() -> None:
         for i, (name, drawer, _m, _s, _z) in enumerate(c.manifest):
             b = scene._drawer_b[scene._assigned[i]]
             item = scene.items[name]
-            loc = quat_apply_inverse(quat[0, b], item.data.root_pos_w[0] - pos[0, b])
-            print(f"[smoke]   {name}: world={[round(v, 3) for v in item.data.root_pos_w[0].tolist()]} "
+            loc = quat_apply_inverse(quat[0, b], item.data.root_pos_w.torch[0] - pos[0, b])
+            print(f"[smoke]   {name}: world={[round(v, 3) for v in item.data.root_pos_w.torch[0].tolist()]} "
                   f"{drawer}-frame={[round(v, 3) for v in loc.tolist()]} "
                   f"tray c={c.tray_center} h={c.tray_half} "
-                  f"|v|={item.data.root_lin_vel_w[0].norm().item():.3f}", flush=True)
+                  f"|v|={item.data.root_lin_vel_w.torch[0].norm().item():.3f}", flush=True)
 
     def save_frames() -> None:
         if frames:
@@ -526,7 +526,7 @@ def main() -> None:
         roof[:, 2] = c.surface_z + (0.40 if CHEST else 0.32)  # just above the cabinet top
         roof[:, 3] = 1.0
         roof[:, 0:3] += env.iscene.env_origins
-        scene.items["stapler"].write_root_state_to_sim(roof, all_ids)
+        scene.items["stapler"].write_root_state_to_sim(roof, env_ids=all_ids)
         step(40)
         expect(not bool(scene.stowed()[0, 0]), "an item on the roof must NOT count")
         report("negative C (roof) OK")

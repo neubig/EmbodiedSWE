@@ -312,7 +312,7 @@ class PcGpuAssemblyScene(BaseScene):
         st[:, 0:3] = origin + torch.tensor((wx + cx, wy + cy, c.surface_z + c.card_init_z), device=dev)
         st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
         st[:, 3:7] = torch.tensor(c.card_init_quat, device=dev)
-        self.card.write_root_state_to_sim(st, env_ids)
+        self.card.write_root_state_to_sim(st, env_ids=env_ids)
         self.grasp_weld.release_all(env_ids)
 
     # ----- state (full, restorable) -------------------------------------------------------------
@@ -320,16 +320,16 @@ class PcGpuAssemblyScene(BaseScene):
         """Restorable scene state: world root states (13) of the case and the card, plus the
         grasp-weld holds."""
         return {
-            "case": self.case.data.root_state_w[env_ids].clone(),
-            "card": self.card.data.root_state_w[env_ids].clone(),
+            "case": self.case.data.root_state_w.torch[env_ids].clone(),
+            "card": self.card.data.root_state_w.torch[env_ids].clone(),
             **self.grasp_weld.state(env_ids),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore what `get_state` returned. The card's insertion depth is fully captured by its
         root state, so the channel holds it on restore."""
-        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids)
-        self.card.write_root_state_to_sim(state["card"], env_ids)
+        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids=env_ids)
+        self.card.write_root_state_to_sim(state["card"], env_ids=env_ids)
         self.grasp_weld.restore(state, env_ids)
 
     # ----- description --------------------------------------------------------------------------
@@ -391,7 +391,7 @@ class PcGpuAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply_inverse
 
         rel = quat_apply_inverse(
-            self.case.data.root_quat_w, self.card.data.root_pos_w - self.case.data.root_pos_w
+            self.case.data.root_quat_w.torch, self.card.data.root_pos_w.torch - self.case.data.root_pos_w.torch
         )
         return rel - torch.tensor(self.cfg.seat_pos, device=rel.device)
 
@@ -403,8 +403,8 @@ class PcGpuAssemblyScene(BaseScene):
         e = torch.zeros(3, device=self.env.device)
         e[axis] = 1.0
         e = e.expand(self.env.num_envs, 3)
-        case_ax = quat_apply(self.case.data.root_quat_w, e)
-        card_ax = quat_apply(self.card.data.root_quat_w, e)
+        case_ax = quat_apply(self.case.data.root_quat_w.torch, e)
+        card_ax = quat_apply(self.card.data.root_quat_w.torch, e)
         return (card_ax * case_ax).sum(dim=-1)
 
     # Grasp-weld contract: composed `GraspWeldContract` (robobench.core.grasp_weld),

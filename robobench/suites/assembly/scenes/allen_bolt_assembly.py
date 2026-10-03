@@ -321,7 +321,7 @@ class AllenBoltAssemblyScene(BaseScene):
                 )
                 st[:, 3] = math.cos(half)
                 st[:, 6] = math.sin(half)
-                bolt.write_root_state_to_sim(st, env_ids)
+                bolt.write_root_state_to_sim(st, env_ids=env_ids)
             part_rows = ((self.keys, c.key_init_xy, c.key_init_z, c.key_init_quat),)
         else:
             part_rows = (
@@ -336,16 +336,16 @@ class AllenBoltAssemblyScene(BaseScene):
                 st[:, 0:3] = origin + torch.tensor((wx + x, wy + y, c.surface_z + init_z), device=dev)
                 st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
                 st[:, 3:7] = quat
-                part.write_root_state_to_sim(st, env_ids)
+                part.write_root_state_to_sim(st, env_ids=env_ids)
         self.grasp_weld.release_all(env_ids)
 
     # ----- state (full, restorable) -------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """Restorable scene state: world root states (13) of each platform, bolt, and key."""
         return {
-            "platforms": torch.stack([p.data.root_state_w[env_ids].clone() for p in self.platforms], dim=1),
-            "bolts": torch.stack([b.data.root_state_w[env_ids].clone() for b in self.bolts], dim=1),
-            "keys": torch.stack([k.data.root_state_w[env_ids].clone() for k in self.keys], dim=1),
+            "platforms": torch.stack([p.data.root_state_w.torch[env_ids].clone() for p in self.platforms], dim=1),
+            "bolts": torch.stack([b.data.root_state_w.torch[env_ids].clone() for b in self.bolts], dim=1),
+            "keys": torch.stack([k.data.root_state_w.torch[env_ids].clone() for k in self.keys], dim=1),
             **self.grasp_weld.state(env_ids),
         }
 
@@ -353,11 +353,11 @@ class AllenBoltAssemblyScene(BaseScene):
         """Restore what `get_state` returned. The bolt's threaded depth is fully captured by its
         root state, so thread friction holds it on restore."""
         for i, platform in enumerate(self.platforms):
-            platform.write_root_pose_to_sim(state["platforms"][:, i, 0:7], env_ids)
+            platform.write_root_pose_to_sim(state["platforms"][:, i, 0:7], env_ids=env_ids)
         for i, bolt in enumerate(self.bolts):
-            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids)
+            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids=env_ids)
         for i, key in enumerate(self.keys):
-            key.write_root_state_to_sim(state["keys"][:, i], env_ids)
+            key.write_root_state_to_sim(state["keys"][:, i], env_ids=env_ids)
         self.grasp_weld.restore(state, env_ids)
 
     # ----- description --------------------------------------------------------------------------
@@ -427,11 +427,11 @@ class AllenBoltAssemblyScene(BaseScene):
         platform origin (the bolt origin IS the tip)."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        pp = torch.stack([p.data.root_pos_w for p in self.platforms], dim=1)  # (n, P, 3)
-        pq = torch.stack([p.data.root_quat_w for p in self.platforms], dim=1)  # (n, P, 4)
+        pp = torch.stack([p.data.root_pos_w.torch for p in self.platforms], dim=1)  # (n, P, 3)
+        pq = torch.stack([p.data.root_quat_w.torch for p in self.platforms], dim=1)  # (n, P, 4)
         cols = []
         for bolt in self.bolts:
-            rel = bolt.data.root_pos_w[:, None, :] - pp  # (n, P, 3)
+            rel = bolt.data.root_pos_w.torch[:, None, :] - pp  # (n, P, 3)
             cols.append(quat_apply_inverse(pq, rel))
         return torch.stack(cols, dim=1)  # (n, B, P, 3)
 
@@ -441,8 +441,8 @@ class AllenBoltAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        plat_up = torch.stack([quat_apply(p.data.root_quat_w, ez) for p in self.platforms], dim=1)  # (n, P, 3)
-        bolt_up = torch.stack([quat_apply(b.data.root_quat_w, ez) for b in self.bolts], dim=1)  # (n, B, 3)
+        plat_up = torch.stack([quat_apply(p.data.root_quat_w.torch, ez) for p in self.platforms], dim=1)  # (n, P, 3)
+        bolt_up = torch.stack([quat_apply(b.data.root_quat_w.torch, ez) for b in self.bolts], dim=1)  # (n, B, 3)
         off = self._bolt_offsets_in_platform()
         near = off[..., :2].norm(dim=-1).argmin(dim=-1)  # (n, B)
         chosen_up = torch.gather(plat_up, 1, near.unsqueeze(-1).expand(-1, -1, 3))  # (n, B, 3)

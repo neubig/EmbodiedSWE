@@ -359,7 +359,7 @@ class PcMotherboardAssemblyScene(BaseScene):
             st[:, 0:3] = origin + torch.tensor((wx + x, wy + y, c.surface_z + init_z), device=dev)
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
             st[:, 3:7] = torch.tensor(init_quat, device=dev)
-            part.write_root_state_to_sim(st, env_ids)
+            part.write_root_state_to_sim(st, env_ids=env_ids)
         self.grasp_weld.release_all(env_ids)
         self._screw_reset(env_ids)
 
@@ -367,9 +367,9 @@ class PcMotherboardAssemblyScene(BaseScene):
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """Restorable scene state: world root states (13) of the case, each bolt, and the key."""
         return {
-            "case": self.case.data.root_state_w[env_ids].clone(),
-            "bolts": torch.stack([b.data.root_state_w[env_ids].clone() for b in self.bolts], dim=1),
-            "key": self.key.data.root_state_w[env_ids].clone(),
+            "case": self.case.data.root_state_w.torch[env_ids].clone(),
+            "bolts": torch.stack([b.data.root_state_w.torch[env_ids].clone() for b in self.bolts], dim=1),
+            "key": self.key.data.root_state_w.torch[env_ids].clone(),
             **self.grasp_weld.state(env_ids),
             **self._screw_state(env_ids),
         }
@@ -377,10 +377,10 @@ class PcMotherboardAssemblyScene(BaseScene):
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore what `get_state` returned. A bolt's threaded depth is fully captured by its
         root state, so thread friction holds it on restore."""
-        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids)
+        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids=env_ids)
         for i, bolt in enumerate(self.bolts):
-            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids)
-        self.key.write_root_state_to_sim(state["key"], env_ids)
+            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids=env_ids)
+        self.key.write_root_state_to_sim(state["key"], env_ids=env_ids)
         self.grasp_weld.restore(state, env_ids)
         self._screw_restore(state, env_ids)
 
@@ -447,12 +447,12 @@ class PcMotherboardAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply_inverse
 
         c = self.cfg
-        cp = self.case.data.root_pos_w  # (n, 3)
-        cq = self.case.data.root_quat_w  # (n, 4)
+        cp = self.case.data.root_pos_w.torch  # (n, 3)
+        cq = self.case.data.root_quat_w.torch  # (n, 4)
         holes = torch.tensor(c.hole_xy, device=cp.device)  # (H, 2)
         cols = []
         for bolt in self.bolts:
-            rel = quat_apply_inverse(cq, bolt.data.root_pos_w - cp)  # (n, 3) in case frame
+            rel = quat_apply_inverse(cq, bolt.data.root_pos_w.torch - cp)  # (n, 3) in case frame
             off = rel[:, None, :].repeat(1, c.num_holes, 1)  # (n, H, 3)
             off[..., 0:2] -= holes
             cols.append(off)
@@ -464,8 +464,8 @@ class PcMotherboardAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        case_up = quat_apply(self.case.data.root_quat_w, ez)  # (n, 3)
-        bolt_up = torch.stack([quat_apply(b.data.root_quat_w, ez) for b in self.bolts], dim=1)  # (n, B, 3)
+        case_up = quat_apply(self.case.data.root_quat_w.torch, ez)  # (n, 3)
+        bolt_up = torch.stack([quat_apply(b.data.root_quat_w.torch, ez) for b in self.bolts], dim=1)  # (n, B, 3)
         return (bolt_up * case_up[:, None, :]).sum(dim=-1)
 
     # Grasp-weld contract: composed `GraspWeldContract` (robobench.core.grasp_weld),
@@ -538,14 +538,14 @@ class PcMotherboardAssemblyScene(BaseScene):
         """Advance engaged joints from the key's measured spin. Runs every physics substep."""
         if not getattr(self, "_screw_on", False):
             return
-        yaw = self._sj_yaw(self.key.data.root_quat_w)
+        yaw = self._sj_yaw(self.key.data.root_quat_w.torch)
         dspin = -((yaw - self._sj_prev + math.pi) % (2 * math.pi) - math.pi)  # +ve = screw-in
         dspin = torch.where(self._sj_fresh, torch.zeros_like(dspin), dspin)  # fresh rows: baseline only
         self._sj_prev = yaw
         self._sj_fresh[:] = False
 
-        kp = self.key.data.root_pos_w
-        bolt_z = torch.stack([b.data.root_pos_w[:, 2] for b in self.bolts], dim=-1)  # (n, B)
+        kp = self.key.data.root_pos_w.torch
+        bolt_z = torch.stack([b.data.root_pos_w.torch[:, 2] for b in self.bolts], dim=-1)  # (n, B)
         tip_ax = kp[:, 2, None] - bolt_z
         tip_lat = (kp[:, None, 0:2] - self._sj_holes).norm(dim=-1)
         engaged = (tip_ax < self.SCREW_SOCKET_MOUTH_Z - self.SCREW_ENGAGE_AXIAL) & (
@@ -573,7 +573,7 @@ class PcMotherboardAssemblyScene(BaseScene):
             st[:, 2] = self._sj_board_z[rows] - c.stage_depth - self.SCREW_PITCH * turn / (2 * math.pi)
             st[:, 3] = torch.cos(yaw / 2)
             st[:, 6] = torch.sin(yaw / 2)
-            bolt.write_root_pose_to_sim(st, rows)
+            bolt.write_root_pose_to_sim(st, env_ids=rows)
 
     def _screw_reset(self, env_ids: torch.Tensor) -> None:
         """Fresh episode: every bolt back to its staged hand-started pose, joints zeroed."""
@@ -587,7 +587,7 @@ class PcMotherboardAssemblyScene(BaseScene):
         mask[env_ids] = True
         self._screw_write(mask)
         for b, bolt in enumerate(self.bolts):  # zero the (kinematic) velocities too
-            bolt.write_root_velocity_to_sim(torch.zeros(len(env_ids), 6, device=self.env.device), env_ids)
+            bolt.write_root_velocity_to_sim(torch.zeros(len(env_ids), 6, device=self.env.device), env_ids=env_ids)
 
     def _screw_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """The mechanic's restorable state (empty when it is off)."""

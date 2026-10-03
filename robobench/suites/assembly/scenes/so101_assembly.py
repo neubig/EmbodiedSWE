@@ -520,7 +520,7 @@ class SO101AssemblyScene(BaseScene):
             st = torch.zeros(m, 13, device=dev)
             st[:, 0:3] = origin + surf + torch.tensor(pos, device=dev)
             st[:, 3] = 1.0
-            body.write_root_state_to_sim(st, env_ids)
+            body.write_root_state_to_sim(st, env_ids=env_ids)
 
         place(self.proximal, (0.0, 0.0, 0.0))  # free floating arm at the origin
         zp = torch.zeros(m, self.proximal.num_joints, device=dev)
@@ -531,7 +531,7 @@ class SO101AssemblyScene(BaseScene):
         stm[:, 0:3] = origin + surf + torch.tensor(
             (*self.cfg.motor_spawn, self.cfg.motor_spawn_z), device=dev)
         stm[:, 3:7] = torch.tensor(self.cfg.motor_spawn_quat, device=dev)
-        self.motor.write_root_state_to_sim(stm, env_ids)
+        self.motor.write_root_state_to_sim(stm, env_ids=env_ids)
         for s, (x, y) in enumerate(self.cfg.screw_spawn_pts):
             place(self.screws[s], (x, y, 0.02))
         for s, (x, y) in enumerate(self.cfg.horn_screw_spawn_pts):
@@ -541,7 +541,7 @@ class SO101AssemblyScene(BaseScene):
         std_r[:, 0:3] = origin + surf + torch.tensor(
             (*self.cfg.drill_spawn, self.cfg.drill_spawn_z), device=dev)
         std_r[:, 3:7] = torch.tensor(self.cfg.drill_spawn_quat, device=dev)
-        self.drill.write_root_state_to_sim(std_r, env_ids)
+        self.drill.write_root_state_to_sim(std_r, env_ids=env_ids)
         zdr = torch.zeros(m, self.drill.num_joints, device=dev)
         self.drill.write_joint_state_to_sim(zdr, zdr, env_ids=env_ids)
 
@@ -549,7 +549,7 @@ class SO101AssemblyScene(BaseScene):
         std_i[:, 0:3] = origin + surf + torch.tensor(
             (*self.cfg.distal_spawn, self.cfg.distal_spawn_z), device=dev)
         std_i[:, 3:7] = torch.tensor(self.cfg.distal_spawn_quat, device=dev)
-        self.distal.write_root_state_to_sim(std_i, env_ids)
+        self.distal.write_root_state_to_sim(std_i, env_ids=env_ids)
         jdi = torch.zeros(m, self.distal.num_joints, device=dev)  # ...and its delivery
         # joint configuration, which the friction-hold drives keep for the whole task
         for jn_, jv_ in self.cfg.distal_spawn_joints:
@@ -574,12 +574,12 @@ class SO101AssemblyScene(BaseScene):
     # ----- frames (world, live) -------------------------------------------------------------------
     def upper_arm_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
         """World pose of the upper_arm link — the motor seat frame (identical by construction)."""
-        return (self.proximal.data.body_pos_w[:, self.b_ua],
-                self.proximal.data.body_quat_w[:, self.b_ua])
+        return (self.proximal.data.body_pos_w.torch[:, self.b_ua],
+                self.proximal.data.body_quat_w.torch[:, self.b_ua])
 
     def lower_arm_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
         """World pose of the lower_arm link — the distal articulation's root body."""
-        return self.distal.data.root_pos_w, self.distal.data.root_quat_w
+        return self.distal.data.root_pos_w.torch, self.distal.data.root_quat_w.torch
 
     def lower_arm_seat_w(self, motor_pose: tuple[torch.Tensor, torch.Tensor] | None = None,
                          ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -589,7 +589,7 @@ class SO101AssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply, quat_mul
 
         mp, mq = motor_pose if motor_pose is not None else (
-            self.motor.data.root_pos_w, self.motor.data.root_quat_w)
+            self.motor.data.root_pos_w.torch, self.motor.data.root_quat_w.torch)
         pos = mp + quat_apply(mq, self._la_seat_pos.expand(len(mp), 3))
         return pos, quat_mul(mq, self._la_seat_quat.expand(len(mp), 4))
 
@@ -666,13 +666,13 @@ class SO101AssemblyScene(BaseScene):
         if arm_pose is None:
             ap, aq = ap[ids], aq[ids]
         mp, mq = motor_pose if motor_pose is not None else (
-            self.motor.data.root_pos_w[ids], self.motor.data.root_quat_w[ids])
+            self.motor.data.root_pos_w.torch[ids], self.motor.data.root_quat_w.torch[ids])
         motor_welded = ((f >= 0) & (f < ne)).any(dim=1)
         snap_f = torch.tensor([self._fork_snap_on[int(i)] for i in ids.tolist()], device=dev)
         la_welded = (f >= ne).any(dim=1) | snap_f
         exp_mp = torch.where(motor_welded.unsqueeze(-1), ap, mp)
         exp_mq = torch.where(motor_welded.unsqueeze(-1), aq, mq)
-        fix = motor_welded & ((self.motor.data.root_pos_w[ids] - ap).norm(dim=-1) > c.weld_snap)
+        fix = motor_welded & ((self.motor.data.root_pos_w.torch[ids] - ap).norm(dim=-1) > c.weld_snap)
         if fix.any():
             rows = fix.nonzero(as_tuple=False).squeeze(-1)
             st = torch.zeros(len(rows), 13, device=dev)
@@ -685,9 +685,9 @@ class SO101AssemblyScene(BaseScene):
         # angle to ZERO — the pre-teleport pose it would be extracted from is stale garbage,
         # and an arbitrary angle can violate the joint limits at re-enable; the drive re-tracks
         # its target from zero
-        qz, _ = self._elbow_angle_split(self.distal.data.root_quat_w[ids], la_seat_q)
+        qz, _ = self._elbow_angle_split(self.distal.data.root_quat_w.torch[ids], la_seat_q)
         la_exp_q = quat_mul(la_seat_q, qz)
-        fix = la_welded & ((self.distal.data.root_pos_w[ids] - la_seat_p).norm(dim=-1)
+        fix = la_welded & ((self.distal.data.root_pos_w.torch[ids] - la_seat_p).norm(dim=-1)
                            > c.weld_snap)
         if fix.any():
             rows = fix.nonzero(as_tuple=False).squeeze(-1)
@@ -696,14 +696,14 @@ class SO101AssemblyScene(BaseScene):
             st[:, 3:7] = la_seat_q[rows]
             self.distal.write_root_state_to_sim(st, ids[rows])
             la_exp_q[rows] = la_seat_q[rows]
-        exp_lp = torch.where(la_welded.unsqueeze(-1), la_seat_p, self.distal.data.root_pos_w[ids])
-        exp_lq = torch.where(la_welded.unsqueeze(-1), la_exp_q, self.distal.data.root_quat_w[ids])
+        exp_lp = torch.where(la_welded.unsqueeze(-1), la_seat_p, self.distal.data.root_pos_w.torch[ids])
+        exp_lq = torch.where(la_welded.unsqueeze(-1), la_exp_q, self.distal.data.root_quat_w.torch[ids])
         seats, _, link_q = self._hole_frames_w(arm_pose=(ap, aq), la_pose=(exp_lp, exp_lq))
         arange = torch.arange(len(ids), device=dev)
         for s in range(c.num_screws):
             h = self.fastened[ids, s]
             exp = seats[arange, h.clamp_min(0)]
-            fix = (h >= 0) & ((self.screws[s].data.root_pos_w[ids] - exp).norm(dim=-1) > c.weld_snap)
+            fix = (h >= 0) & ((self.screws[s].data.root_pos_w.torch[ids] - exp).norm(dim=-1) > c.weld_snap)
             if not fix.any():
                 continue
             rows = fix.nonzero(as_tuple=False).squeeze(-1)
@@ -718,7 +718,7 @@ class SO101AssemblyScene(BaseScene):
         the bit at `bit_speed`. Returns the per-env "trigger squeezed" mask (the fastening gate
         reads it too)."""
         c = self.cfg
-        trig = self.drill.data.joint_pos[:, self.i_trig]
+        trig = self.drill.data.joint_pos.torch[:, self.i_trig]
         squeezed = trig < -0.7 * c.trigger_swing
         spin_t = torch.where(squeezed, torch.full_like(trig, c.bit_speed), torch.zeros_like(trig))
         self.drill.set_joint_velocity_target(spin_t.unsqueeze(-1), joint_ids=[self.i_bit])
@@ -758,17 +758,17 @@ class SO101AssemblyScene(BaseScene):
 
         c, n, dt = self.cfg, self.env.num_envs, self.env.dt
         ns, nh, ne = c.num_screws, c.num_holes, c.num_elbow_holes
-        bit_vel = self.drill.data.joint_vel[:, self.i_bit]
+        bit_vel = self.drill.data.joint_vel.torch[:, self.i_bit]
         spinning = bit_vel.abs() > c.spin_min
 
         ap, aq = self.upper_arm_pose()
         lp, lq = self.lower_arm_pose()
-        sp = torch.stack([s.data.root_pos_w for s in self.screws], dim=1)  # (n, ns, 3)
-        sq = torch.stack([s.data.root_quat_w for s in self.screws], dim=1)  # (n, ns, 4)
-        bit_q = self.drill.data.body_quat_w[:, self.b_bit]
+        sp = torch.stack([s.data.root_pos_w.torch for s in self.screws], dim=1)  # (n, ns, 3)
+        sq = torch.stack([s.data.root_quat_w.torch for s in self.screws], dim=1)  # (n, ns, 4)
+        bit_q = self.drill.data.body_quat_w.torch[:, self.b_bit]
         seats, axis, link_q = self._hole_frames_w(arm_pose=(ap, aq), la_pose=(lp, lq))
         s_axis = quat_apply(sq.view(-1, 4), self._ez.expand(n * ns, 3)).view(n, ns, 3)  # out of head
-        tip = self.drill.data.body_pos_w[:, self.b_bit] + quat_apply(
+        tip = self.drill.data.body_pos_w.torch[:, self.b_bit] + quat_apply(
             bit_q, self._bit_tip.expand(n, 3))
         bit_dir = quat_apply(bit_q, self._ey.expand(n, 3))
 
@@ -789,8 +789,8 @@ class SO101AssemblyScene(BaseScene):
                    & self._pair_ok.unsqueeze(0))
         # 2. parts aligned — per hole: the tab holes need the seated servo, the horn hole the
         # seated lower_arm
-        motor_aligned = (((self.motor.data.root_pos_w - ap).norm(dim=-1) < c.motor_align_pos)
-                         & (quat_error_magnitude(self.motor.data.root_quat_w, aq)
+        motor_aligned = (((self.motor.data.root_pos_w.torch - ap).norm(dim=-1) < c.motor_align_pos)
+                         & (quat_error_magnitude(self.motor.data.root_quat_w.torch, aq)
                             < math.radians(c.motor_align_deg)))
         la_exp_p, la_exp_q = self.lower_arm_seat_w()
         # angle-agnostic: the horn holes rotate WITH the assembled elbow joint, so only the
@@ -883,12 +883,12 @@ class SO101AssemblyScene(BaseScene):
         if c.seat_detent:
             f_now = self.fastened
             screw_held = ((f_now >= 0) & (f_now < ne)).any(dim=1)
-            dpos = (self.motor.data.root_pos_w - ap).norm(dim=-1)
-            dori = quat_error_magnitude(self.motor.data.root_quat_w, aq)
+            dpos = (self.motor.data.root_pos_w.torch - ap).norm(dim=-1)
+            dori = quat_error_magnitude(self.motor.data.root_quat_w.torch, aq)
             tight = (dpos < c.detent_pos) & (dori < math.radians(c.detent_deg))
             ins_w = quat_apply(aq, torch.tensor(
                 (0.0, 1.0, 0.0), device=aq.device).expand(aq.shape[0], 3))
-            d_out = -((self.motor.data.root_pos_w - ap) * ins_w).sum(dim=-1)  # + = exiting
+            d_out = -((self.motor.data.root_pos_w.torch - ap) * ins_w).sum(dim=-1)  # + = exiting
             for i in range(dpos.shape[0]):
                 if screw_held[i]:
                     self._detent_on[i] = False  # promoted to a real fastening
@@ -985,19 +985,19 @@ class SO101AssemblyScene(BaseScene):
         back — set_state reconciles the fastened parts against it, so a restored (or hand-built,
         e.g. a curriculum/RL reset to a phase) state comes up self-consistent."""
         return {
-            "proximal_root": self.proximal.data.root_state_w[env_ids].clone(),
-            "proximal_joint_pos": self.proximal.data.joint_pos[env_ids].clone(),
-            "proximal_joint_vel": self.proximal.data.joint_vel[env_ids].clone(),
-            "upper_arm": torch.cat([self.proximal.data.body_pos_w[env_ids, self.b_ua],
-                                    self.proximal.data.body_quat_w[env_ids, self.b_ua]], dim=-1),
-            "distal_root": self.distal.data.root_state_w[env_ids].clone(),
-            "distal_joint_pos": self.distal.data.joint_pos[env_ids].clone(),
-            "distal_joint_vel": self.distal.data.joint_vel[env_ids].clone(),
-            "motor": self.motor.data.root_state_w[env_ids].clone(),
-            "screws": torch.stack([s.data.root_state_w[env_ids].clone() for s in self.screws], dim=1),
-            "drill_root": self.drill.data.root_state_w[env_ids].clone(),
-            "drill_joint_pos": self.drill.data.joint_pos[env_ids].clone(),
-            "drill_joint_vel": self.drill.data.joint_vel[env_ids].clone(),
+            "proximal_root": self.proximal.data.root_state_w.torch[env_ids].clone(),
+            "proximal_joint_pos": self.proximal.data.joint_pos.torch[env_ids].clone(),
+            "proximal_joint_vel": self.proximal.data.joint_vel.torch[env_ids].clone(),
+            "upper_arm": torch.cat([self.proximal.data.body_pos_w.torch[env_ids, self.b_ua],
+                                    self.proximal.data.body_quat_w.torch[env_ids, self.b_ua]], dim=-1),
+            "distal_root": self.distal.data.root_state_w.torch[env_ids].clone(),
+            "distal_joint_pos": self.distal.data.joint_pos.torch[env_ids].clone(),
+            "distal_joint_vel": self.distal.data.joint_vel.torch[env_ids].clone(),
+            "motor": self.motor.data.root_state_w.torch[env_ids].clone(),
+            "screws": torch.stack([s.data.root_state_w.torch[env_ids].clone() for s in self.screws], dim=1),
+            "drill_root": self.drill.data.root_state_w.torch[env_ids].clone(),
+            "drill_joint_pos": self.drill.data.joint_pos.torch[env_ids].clone(),
+            "drill_joint_vel": self.drill.data.joint_vel.torch[env_ids].clone(),
             "fastened": self.fastened[env_ids].clone(),
             "fork_snap": torch.tensor([self._fork_snap_on[int(i)] for i in env_ids.tolist()]),
             "attached": self.attached[env_ids].clone(),
@@ -1012,16 +1012,16 @@ class SO101AssemblyScene(BaseScene):
         (the live link FK is stale until the sim steps) — so a hand-edited state (e.g. flipping
         `fastened` flags to reset a curriculum to a later phase) still comes up with the welded
         parts seated consistently instead of being yanked on the first step."""
-        self.proximal.write_root_state_to_sim(state["proximal_root"], env_ids)
+        self.proximal.write_root_state_to_sim(state["proximal_root"], env_ids=env_ids)
         self.proximal.write_joint_state_to_sim(
             state["proximal_joint_pos"], state["proximal_joint_vel"], env_ids=env_ids)
-        self.distal.write_root_state_to_sim(state["distal_root"], env_ids)
+        self.distal.write_root_state_to_sim(state["distal_root"], env_ids=env_ids)
         self.distal.write_joint_state_to_sim(
             state["distal_joint_pos"], state["distal_joint_vel"], env_ids=env_ids)
-        self.motor.write_root_state_to_sim(state["motor"], env_ids)
+        self.motor.write_root_state_to_sim(state["motor"], env_ids=env_ids)
         for s, screw in enumerate(self.screws):
-            screw.write_root_state_to_sim(state["screws"][:, s], env_ids)
-        self.drill.write_root_state_to_sim(state["drill_root"], env_ids)
+            screw.write_root_state_to_sim(state["screws"][:, s], env_ids=env_ids)
+        self.drill.write_root_state_to_sim(state["drill_root"], env_ids=env_ids)
         self.drill.write_joint_state_to_sim(
             state["drill_joint_pos"], state["drill_joint_vel"], env_ids=env_ids)
         snap_st = state.get("fork_snap")

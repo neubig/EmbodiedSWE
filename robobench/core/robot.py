@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from .compat import write_joint_state_native, write_root_state_native
 from .config import BaseCfg
 
 if TYPE_CHECKING:
@@ -113,11 +114,11 @@ class BaseRobot(ABC):
         art = self.articulation
         if art is not None:
             d = art.data
-            state["root"] = d.root_state_w[env_ids].clone()
-            state["joint_pos"] = d.joint_pos[env_ids].clone()
-            state["joint_vel"] = d.joint_vel[env_ids].clone()
-            state["joint_pos_target"] = d.joint_pos_target[env_ids].clone()
-            state["joint_effort_target"] = d.joint_effort_target[env_ids].clone()
+            state["root"] = d.root_state_w.torch[env_ids].clone()
+            state["joint_pos"] = d.joint_pos.torch[env_ids].clone()
+            state["joint_vel"] = d.joint_vel.torch[env_ids].clone()
+            state["joint_pos_target"] = d.joint_pos_target.torch[env_ids].clone()
+            state["joint_effort_target"] = d.joint_effort_target.torch[env_ids].clone()
         if self.controller is not None:
             state["controller"] = self.controller.get_state(env_ids)
         return state
@@ -128,8 +129,8 @@ class BaseRobot(ABC):
         controller's state."""
         art = self.articulation
         if art is not None:
-            art.write_root_state_to_sim(state["root"], env_ids)
-            art.write_joint_state_to_sim(state["joint_pos"], state["joint_vel"], env_ids=env_ids)
+            write_root_state_native(art, state["root"], env_ids)
+            write_joint_state_native(art, state["joint_pos"], state["joint_vel"], env_ids)
             art.set_joint_position_target(state["joint_pos_target"], env_ids=env_ids)
             art.set_joint_effort_target(state["joint_effort_target"], env_ids=env_ids)
         if self.controller is not None and "controller" in state:

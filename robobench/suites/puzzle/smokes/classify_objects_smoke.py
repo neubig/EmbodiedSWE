@@ -120,7 +120,7 @@ def main() -> None:
         st[:, 2] = c.surface_z + s / 2
         st[:, 3] = 1.0
         st[:, 0:3] += env.iscene.env_origins
-        scene.blocks[name].write_root_state_to_sim(st, all_ids)
+        scene.blocks[name].write_root_state_to_sim(st, env_ids=all_ids)
 
     # 1. show
     env.reset()
@@ -174,7 +174,7 @@ def main() -> None:
     st = torch.zeros(n, 13, device=device)
     st[:, 0] = zc[0]; st[:, 1] = zc[1]; st[:, 2] = c.surface_z + s / 2; st[:, 3] = 1.0
     st[:, 0:3] += env.iscene.env_origins
-    scene.blocks[probe].write_root_state_to_sim(st, all_ids)
+    scene.blocks[probe].write_root_state_to_sim(st, env_ids=all_ids)
     env.iscene.update(0.0)
     check("off-zone: block between zones not counted", not bool(scene.sorted_mask()[0, 0]))
     step(40)

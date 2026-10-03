@@ -63,7 +63,7 @@ done
 [[ "$SOLUTION_RUNS" =~ ^[1-9][0-9]*$ ]] || { echo "--solution-runs must be positive" >&2; exit 2; }
 [[ "$(uname -s)" == "Linux" ]] || { echo "validation requires Linux" >&2; exit 1; }
 [[ -x "$PYTHON_BIN" ]] || {
-    echo "missing $PYTHON_BIN; run ./scripts/bootstrap_isaaclab_5_1.sh first" >&2
+    echo "missing $PYTHON_BIN; this legacy packing validator is not yet Lab3-qualified" >&2
     exit 1
 }
 command -v nvidia-smi >/dev/null 2>&1 || { echo "nvidia-smi is unavailable" >&2; exit 1; }

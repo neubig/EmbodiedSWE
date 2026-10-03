@@ -210,14 +210,14 @@ class Jaco2N7Robot(BaseRobot):
         """Home pose: default joint state; hold all joint position targets at default (the finger PD
         holds, the arm targets are inert in torque mode). Root written to the fixed spawn pose + origin."""
         art = self.articulation
-        jp = art.data.default_joint_pos[env_ids].clone()
-        jv = art.data.default_joint_vel[env_ids].clone()
+        jp = art.data.default_joint_pos.torch[env_ids].clone()
+        jv = art.data.default_joint_vel.torch[env_ids].clone()
         art.write_joint_state_to_sim(jp, jv, env_ids=env_ids)
         art.set_joint_position_target(jp, env_ids=env_ids)
         art.set_joint_effort_target(torch.zeros_like(jp), env_ids=env_ids)
-        root = art.data.default_root_state[env_ids].clone()
+        root = art.data.default_root_state.torch[env_ids].clone()
         root[:, 0:3] += self.env.iscene.env_origins[env_ids]
-        art.write_root_state_to_sim(root, env_ids)
+        art.write_root_state_to_sim(root, env_ids=env_ids)
         if self.controller is not None:
             self.controller.reset(env_ids)
 

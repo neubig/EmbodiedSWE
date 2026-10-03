@@ -99,7 +99,7 @@ def main() -> None:
 
         c = scene.cfg
         axis, p = scene.planes[idx]
-        kp, kq = scene.knife.data.root_pos_w[:1], scene.knife.data.root_quat_w[:1]
+        kp, kq = scene.knife.data.root_pos_w.torch[:1], scene.knife.data.root_quat_w.torch[:1]
         N = scene._edge_local.shape[0]
         pts = kp + quat_apply(kq.expand(N, 4), scene._edge_local)
         bn = quat_apply(kq, torch.tensor([[0.0, 0.0, 1.0]], device=device))[0]

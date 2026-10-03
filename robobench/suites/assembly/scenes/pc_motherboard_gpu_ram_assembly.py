@@ -572,7 +572,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
             st[:, 0:3] = origin + torch.tensor((wx + x, wy + y, c.surface_z + init_z), device=dev)
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
             st[:, 3:7] = torch.tensor(init_quat, device=dev)
-            part.write_root_state_to_sim(st, env_ids)
+            part.write_root_state_to_sim(st, env_ids=env_ids)
         self._grasp_weld_release_all(env_ids)
         self._screw_reset(env_ids)
 
@@ -581,13 +581,13 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         """Restorable scene state: world root states (13) of the case, each bolt, the key, the
         card, and both sticks."""
         out = {
-            "case": self.case.data.root_state_w[env_ids].clone(),
-            "bolts": torch.stack([b.data.root_state_w[env_ids].clone() for b in self.bolts], dim=1),
-            "key": self.key.data.root_state_w[env_ids].clone(),
-            "card": self.card.data.root_state_w[env_ids].clone(),
+            "case": self.case.data.root_state_w.torch[env_ids].clone(),
+            "bolts": torch.stack([b.data.root_state_w.torch[env_ids].clone() for b in self.bolts], dim=1),
+            "key": self.key.data.root_state_w.torch[env_ids].clone(),
+            "card": self.card.data.root_state_w.torch[env_ids].clone(),
         }
         for k, ram in enumerate(self.rams):
-            out[f"ram_{k}"] = ram.data.root_state_w[env_ids].clone()
+            out[f"ram_{k}"] = ram.data.root_state_w.torch[env_ids].clone()
         out.update(self._grasp_weld_state(env_ids))
         out.update(self._screw_state(env_ids))
         return out
@@ -596,13 +596,13 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         """Restore what `get_state` returned. A part's insertion/threaded depth is fully captured
         by its root state (plus the screw joints' recorded turn), so its channel/thread holds it
         on restore."""
-        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids)
+        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids=env_ids)
         for i, bolt in enumerate(self.bolts):
-            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids)
-        self.key.write_root_state_to_sim(state["key"], env_ids)
-        self.card.write_root_state_to_sim(state["card"], env_ids)
+            bolt.write_root_state_to_sim(state["bolts"][:, i], env_ids=env_ids)
+        self.key.write_root_state_to_sim(state["key"], env_ids=env_ids)
+        self.card.write_root_state_to_sim(state["card"], env_ids=env_ids)
         for k, ram in enumerate(self.rams):
-            ram.write_root_state_to_sim(state[f"ram_{k}"], env_ids)
+            ram.write_root_state_to_sim(state[f"ram_{k}"], env_ids=env_ids)
         self._grasp_weld_restore(state, env_ids)
         self._screw_restore(state, env_ids)
 
@@ -731,12 +731,12 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply_inverse
 
         c = self.cfg
-        cp = self.case.data.root_pos_w  # (n, 3)
-        cq = self.case.data.root_quat_w  # (n, 4)
+        cp = self.case.data.root_pos_w.torch  # (n, 3)
+        cq = self.case.data.root_quat_w.torch  # (n, 4)
         holes = torch.tensor(c.hole_xy, device=cp.device)  # (H, 2)
         cols = []
         for bolt in self.bolts:
-            rel = quat_apply_inverse(cq, bolt.data.root_pos_w - cp)  # (n, 3) in case frame
+            rel = quat_apply_inverse(cq, bolt.data.root_pos_w.torch - cp)  # (n, 3) in case frame
             off = rel[:, None, :].repeat(1, c.num_holes, 1)  # (n, H, 3)
             off[..., 0:2] -= holes
             cols.append(off)
@@ -748,8 +748,8 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        case_up = quat_apply(self.case.data.root_quat_w, ez)  # (n, 3)
-        bolt_up = torch.stack([quat_apply(b.data.root_quat_w, ez) for b in self.bolts], dim=1)  # (n, B, 3)
+        case_up = quat_apply(self.case.data.root_quat_w.torch, ez)  # (n, 3)
+        bolt_up = torch.stack([quat_apply(b.data.root_quat_w.torch, ez) for b in self.bolts], dim=1)  # (n, B, 3)
         return (bolt_up * case_up[:, None, :]).sum(dim=-1)
 
     def _card_offset_in_case(self) -> torch.Tensor:
@@ -757,7 +757,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply_inverse
 
         rel = quat_apply_inverse(
-            self.case.data.root_quat_w, self.card.data.root_pos_w - self.case.data.root_pos_w
+            self.case.data.root_quat_w.torch, self.card.data.root_pos_w.torch - self.case.data.root_pos_w.torch
         )
         return rel - torch.tensor(self.cfg.gpu_seat_pos, device=rel.device)
 
@@ -769,7 +769,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         out = []
         for k, ram in enumerate(self.rams):
             rel = quat_apply_inverse(
-                self.case.data.root_quat_w, ram.data.root_pos_w - self.case.data.root_pos_w
+                self.case.data.root_quat_w.torch, ram.data.root_pos_w.torch - self.case.data.root_pos_w.torch
             )
             out.append(rel - torch.tensor(self.cfg.ram_seat_pos[k], device=rel.device))
         return torch.stack(out, dim=1)
@@ -782,8 +782,8 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         e = torch.zeros(3, device=self.env.device)
         e[axis] = 1.0
         e = e.expand(self.env.num_envs, 3)
-        case_ax = quat_apply(self.case.data.root_quat_w, e)
-        part_ax = quat_apply(part.data.root_quat_w, e)
+        case_ax = quat_apply(self.case.data.root_quat_w.torch, e)
+        part_ax = quat_apply(part.data.root_quat_w.torch, e)
         return (part_ax * case_ax).sum(dim=-1)
 
     # ----- grasp-weld machinery (the weld-on-closure contract; private — not an agent action) ----
@@ -910,10 +910,10 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         art = self._gw_art
-        hp = art.data.body_pos_w[:, self._gw_hand_i]
-        hq = art.data.body_quat_w[:, self._gw_hand_i]
-        gap = art.data.joint_pos[:, self._gw_fingers].sum(dim=-1)
-        stalled = art.data.joint_vel[:, self._gw_fingers].abs().sum(dim=-1) < self.GRASP_STALL
+        hp = art.data.body_pos_w.torch[:, self._gw_hand_i]
+        hq = art.data.body_quat_w.torch[:, self._gw_hand_i]
+        gap = art.data.joint_pos.torch[:, self._gw_fingers].sum(dim=-1)
+        stalled = art.data.joint_vel.torch[:, self._gw_fingers].abs().sum(dim=-1) < self.GRASP_STALL
         approach = torch.zeros_like(hp)
         approach[:, 2] = self.GRASP_PINCH_OFFSET
         pinch = hp + quat_apply(hq, approach)
@@ -949,7 +949,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         n = pinch.shape[0]
         out = []
         for _name, obj, p0, p1, _win in self._gw_sites:
-            pp, pq = obj.data.root_pos_w, obj.data.root_quat_w
+            pp, pq = obj.data.root_pos_w.torch, obj.data.root_quat_w.torch
             a = pp + quat_apply(pq, torch.tensor(p0, device=pinch.device).expand(n, 3))
             b = pp + quat_apply(pq, torch.tensor(p1, device=pinch.device).expand(n, 3))
             ab = b - a
@@ -963,8 +963,8 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply_inverse, quat_conjugate, quat_mul
 
         name, obj = self._gw_sites[s][0], self._gw_sites[s][1]
-        rel_p = quat_apply_inverse(hq.unsqueeze(0), (obj.data.root_pos_w[env_i] - hp).unsqueeze(0))[0]
-        rel_q = quat_mul(quat_conjugate(hq.unsqueeze(0)), obj.data.root_quat_w[env_i].unsqueeze(0))[0]
+        rel_p = quat_apply_inverse(hq.unsqueeze(0), (obj.data.root_pos_w.torch[env_i] - hp).unsqueeze(0))[0]
+        rel_q = quat_mul(quat_conjugate(hq.unsqueeze(0)), obj.data.root_quat_w.torch[env_i].unsqueeze(0))[0]
         if not self._gw_set_joint(env_i, s, rel_p, rel_q):
             return
         self._gw_rel_p[env_i, s] = rel_p
@@ -1096,14 +1096,14 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         """Advance engaged joints from the key's measured spin. Runs every physics substep."""
         if not getattr(self, "_screw_on", False):
             return
-        yaw = self._sj_yaw(self.key.data.root_quat_w)
+        yaw = self._sj_yaw(self.key.data.root_quat_w.torch)
         dspin = -((yaw - self._sj_prev + math.pi) % (2 * math.pi) - math.pi)  # +ve = screw-in
         dspin = torch.where(self._sj_fresh, torch.zeros_like(dspin), dspin)  # fresh rows: baseline only
         self._sj_prev = yaw
         self._sj_fresh[:] = False
 
-        kp = self.key.data.root_pos_w
-        bolt_z = torch.stack([b.data.root_pos_w[:, 2] for b in self.bolts], dim=-1)  # (n, B)
+        kp = self.key.data.root_pos_w.torch
+        bolt_z = torch.stack([b.data.root_pos_w.torch[:, 2] for b in self.bolts], dim=-1)  # (n, B)
         tip_ax = kp[:, 2, None] - bolt_z
         tip_lat = (kp[:, None, 0:2] - self._sj_holes).norm(dim=-1)
         engaged = (tip_ax < self.SCREW_SOCKET_MOUTH_Z - self.SCREW_ENGAGE_AXIAL) & (
@@ -1131,7 +1131,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
             st[:, 2] = self._sj_board_z[rows] - c.stage_depth - self.SCREW_PITCH * turn / (2 * math.pi)
             st[:, 3] = torch.cos(yaw / 2)
             st[:, 6] = torch.sin(yaw / 2)
-            bolt.write_root_pose_to_sim(st, rows)
+            bolt.write_root_pose_to_sim(st, env_ids=rows)
 
     def _screw_reset(self, env_ids: torch.Tensor) -> None:
         """Fresh episode: every bolt back to its staged hand-started pose, joints zeroed."""
@@ -1145,7 +1145,7 @@ class PcMotherboardGpuRamAssemblyScene(BaseScene):
         mask[env_ids] = True
         self._screw_write(mask)
         for b, bolt in enumerate(self.bolts):  # zero the (kinematic) velocities too
-            bolt.write_root_velocity_to_sim(torch.zeros(len(env_ids), 6, device=self.env.device), env_ids)
+            bolt.write_root_velocity_to_sim(torch.zeros(len(env_ids), 6, device=self.env.device), env_ids=env_ids)
 
     def _screw_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """The mechanic's restorable state (empty when it is off)."""

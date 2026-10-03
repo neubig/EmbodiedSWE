@@ -396,31 +396,31 @@ class PcRamAssemblyScene(BaseScene):
                 (wx, wy, c.surface_z + c.case_lift), device=dev)
             pose[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.case_jitter_xy
             pose[:, 3] = 1.0
-            self.case.write_root_pose_to_sim(pose, env_ids)
+            self.case.write_root_pose_to_sim(pose, env_ids=env_ids)
 
         for ram, (ix, iy) in zip(self.rams, c.ram_init_xy):
             st = torch.zeros(m, 13, device=dev)
             st[:, 0:3] = origin + torch.tensor((wx + ix, wy + iy, c.surface_z + c.ram_init_z), device=dev)
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
             st[:, 3:7] = torch.tensor(c.ram_init_quat, device=dev)
-            ram.write_root_state_to_sim(st, env_ids)
+            ram.write_root_state_to_sim(st, env_ids=env_ids)
         self.grasp_weld.release_all(env_ids)
 
     # ----- state (full, restorable) -------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """Restorable scene state: world root states (13) of the case and both sticks."""
-        out = {"case": self.case.data.root_state_w[env_ids].clone()}
+        out = {"case": self.case.data.root_state_w.torch[env_ids].clone()}
         for k, ram in enumerate(self.rams):
-            out[f"ram_{k}"] = ram.data.root_state_w[env_ids].clone()
+            out[f"ram_{k}"] = ram.data.root_state_w.torch[env_ids].clone()
         out.update(self.grasp_weld.state(env_ids))
         return out
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore what `get_state` returned. A stick's insertion depth is fully captured by its
         root state, so the channel holds it on restore."""
-        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids)
+        self.case.write_root_pose_to_sim(state["case"][:, 0:7], env_ids=env_ids)
         for k, ram in enumerate(self.rams):
-            ram.write_root_state_to_sim(state[f"ram_{k}"], env_ids)
+            ram.write_root_state_to_sim(state[f"ram_{k}"], env_ids=env_ids)
         self.grasp_weld.restore(state, env_ids)
 
     # ----- description --------------------------------------------------------------------------
@@ -486,7 +486,7 @@ class PcRamAssemblyScene(BaseScene):
         out = []
         for k, ram in enumerate(self.rams):
             rel = quat_apply_inverse(
-                self.case.data.root_quat_w, ram.data.root_pos_w - self.case.data.root_pos_w
+                self.case.data.root_quat_w.torch, ram.data.root_pos_w.torch - self.case.data.root_pos_w.torch
             )
             out.append(rel - torch.tensor(self.cfg.seat_pos[k], device=rel.device))
         return torch.stack(out, dim=1)
@@ -500,10 +500,10 @@ class PcRamAssemblyScene(BaseScene):
         e = torch.zeros(3, device=self.env.device)
         e[axis] = 1.0
         e = e.expand(self.env.num_envs, 3)
-        case_ax = quat_apply(self.case.data.root_quat_w, e)
+        case_ax = quat_apply(self.case.data.root_quat_w.torch, e)
         cols = []
         for ram in self.rams:
-            ram_ax = quat_apply(ram.data.root_quat_w, e)
+            ram_ax = quat_apply(ram.data.root_quat_w.torch, e)
             cols.append((ram_ax * case_ax).sum(dim=-1))
         return torch.stack(cols, dim=1)
 

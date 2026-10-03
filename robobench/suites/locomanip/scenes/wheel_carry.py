@@ -325,7 +325,7 @@ class WheelCarryScene(BaseScene):
         `transited` = it then travelled most of the way to the place station. Both are one-way: they
         prove the path was walked, and releasing the wheel later does not un-prove it (the live
         `placed()` predicate is what proves the destination)."""
-        p = self.wheel.data.root_pos_w - self.env_origins
+        p = self.wheel.data.root_pos_w.torch - self.env_origins
         c = self.cfg
         self._lifted |= p[:, 2] > c.surface_z + c.lift_h
         self._transited |= self._lifted & (self.carried_fraction() > 0.9)
@@ -341,7 +341,7 @@ class WheelCarryScene(BaseScene):
         if c.reset_pos_jitter:
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
         st[:, 3:7] = torch.tensor(c.wheel_init_quat, device=dev)
-        self.wheel.write_root_state_to_sim(st, env_ids)
+        self.wheel.write_root_state_to_sim(st, env_ids=env_ids)
         self._lifted[env_ids] = False
         self._transited[env_ids] = False
 
@@ -351,14 +351,14 @@ class WheelCarryScene(BaseScene):
         else in the scene is static furniture. The latches travel with the state so a snapshot
         restored mid-carry does not silently lose the milestones already earned."""
         return {
-            "wheel": self.wheel.data.root_state_w[env_ids].clone(),
+            "wheel": self.wheel.data.root_state_w.torch[env_ids].clone(),
             "lifted": self._lifted[env_ids].clone(),
             "transited": self._transited[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore `get_state`: the wheel's root state and the journey latches."""
-        self.wheel.write_root_state_to_sim(state["wheel"], env_ids)
+        self.wheel.write_root_state_to_sim(state["wheel"], env_ids=env_ids)
         self._lifted[env_ids] = state["lifted"]
         self._transited[env_ids] = state["transited"]
 
@@ -410,30 +410,30 @@ class WheelCarryScene(BaseScene):
         to under `settle_vel` on every axis. Embodiment-agnostic by construction: it reads the wheel
         and the basket only, never the robot."""
         (x0, x1), (y0, y1), max_z = self.cfg.place_box_world()
-        p = self.wheel.data.root_pos_w - self.env_origins  # env-local, like every target here
+        p = self.wheel.data.root_pos_w.torch - self.env_origins  # env-local, like every target here
         inside = (p[:, 0] > x0) & (p[:, 0] < x1) & (p[:, 1] > y0) & (p[:, 1] < y1) & (p[:, 2] < max_z)
         return inside & self.settled()
 
     def settled(self) -> torch.Tensor:
         """Whether the wheel has come to rest, `(num_envs,)`: every component of its linear AND
         angular velocity under `settle_vel`."""
-        return self.wheel.data.root_vel_w.abs().amax(dim=-1) < self.cfg.settle_vel
+        return self.wheel.data.root_vel_w.torch.abs().amax(dim=-1) < self.cfg.settle_vel
 
     def dropped(self) -> torch.Tensor:
         """Whether the wheel has fallen to the floor, `(num_envs,)` — a readable signal, not a forced
         reset: this scene never terminates an episode on its own. Unlike the fixed-base version this
         is a live hazard for most of the run, since the wheel spends metres in the air."""
-        z = self.wheel.data.root_pos_w[:, 2] - self.env_origins[:, 2]
+        z = self.wheel.data.root_pos_w.torch[:, 2] - self.env_origins[:, 2]
         return z < self.cfg.surface_z - self.cfg.drop_below_surface
 
     def carried_fraction(self) -> torch.Tensor:
         """How far along the pick -> place transit the wheel has got, `(num_envs,)` in [0, 1] — the
         fraction of `carry_dx` closed, measured on the WHEEL (the thing the task is about), not on
         the robot. 0 at the pick station, 1 at the place station."""
-        x = self.wheel.data.root_pos_w[:, 0] - self.env_origins[:, 0]
+        x = self.wheel.data.root_pos_w.torch[:, 0] - self.env_origins[:, 0]
         return ((x - self.cfg.pick_pos[0]) / self.cfg.carry_dx).clamp(0.0, 1.0)
 
     def wheel_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
         """The wheel's ENV-LOCAL position `(num_envs, 3)` and orientation `(num_envs, 4)` wxyz — the
         frame every target in this scene is quoted in."""
-        return self.wheel.data.root_pos_w - self.env_origins, self.wheel.data.root_quat_w
+        return self.wheel.data.root_pos_w.torch - self.env_origins, self.wheel.data.root_quat_w.torch

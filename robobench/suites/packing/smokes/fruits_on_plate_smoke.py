@@ -144,7 +144,7 @@ def main() -> None:
     # --- staging -------------------------------------------------------------------------------
     def plate_origin_w() -> torch.Tensor:
         """(n, 3) plate PRIM ORIGIN world position (base, 13/19 mm off the dish centre)."""
-        return scene.plate.data.root_pos_w.clone()
+        return scene.plate.data.root_pos_w.torch.clone()
 
     def plate_slots(k: int) -> list[tuple[float, float, float]]:
         """Release points in the plate's BODY frame, measured from the dish CENTRE: one in the
@@ -163,7 +163,7 @@ def main() -> None:
         st = torch.zeros(n, 13, device=device)
         st[:, 0:3] = plate_origin_w() + torch.tensor(slot, device=device)
         st[:, 3] = 1.0
-        scene.items[name].write_root_state_to_sim(st, all_ids)
+        scene.items[name].write_root_state_to_sim(st, env_ids=all_ids)
 
     def place_on_table(name: str, dx: float, dy: float) -> None:
         """Put an item back on the table well clear of the plate (for the recovery step)."""
@@ -174,7 +174,7 @@ def main() -> None:
         st[:, 1] = o[:, 1] + wy + dy
         st[:, 2] = o[:, 2] + c.surface_z + 0.08
         st[:, 3] = 1.0
-        scene.items[name].write_root_state_to_sim(st, all_ids)
+        scene.items[name].write_root_state_to_sim(st, env_ids=all_ids)
 
     def settle(steps: int = 90) -> None:
         step(steps)

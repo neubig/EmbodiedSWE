@@ -158,13 +158,13 @@ class DiffIKController(BaseController):
             action = c.ema_factor * action + (1.0 - c.ema_factor) * self._prev_action
             self._prev_action.copy_(action)
 
-        ee_pos = art.data.body_pos_w[:, self._ee_idx]
-        ee_quat = art.data.body_quat_w[:, self._ee_idx]
+        ee_pos = art.data.body_pos_w.torch[:, self._ee_idx]
+        ee_quat = art.data.body_quat_w.torch[:, self._ee_idx]
         dpose = torch.cat((action[:, 0:3] * c.pos_scale, action[:, 3:6] * c.rot_scale), dim=-1)
         self._ik.set_command(dpose, ee_pos=ee_pos, ee_quat=ee_quat)  # latch target = live pose + delta
 
         jac = art.root_physx_view.get_jacobians()[:, self._jac_ee_idx, 0:6, :][:, :, jids]  # (n, 6, n_arm)
-        q = art.data.joint_pos[:, jids]
+        q = art.data.joint_pos.torch[:, jids]
         q_des = self._ik.compute(ee_pos, ee_quat, jac, q)
 
         if self._shaped:  # rate limit + lead clamp through the persistent integrator (see module doc)

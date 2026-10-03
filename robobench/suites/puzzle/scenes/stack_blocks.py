@@ -292,16 +292,16 @@ class StackBlocksScene(BaseScene):
             st[:, 3] = torch.cos(half)
             st[:, 6] = torch.sin(half)
             st[:, 0:3] += origin
-            self.blocks[name].write_root_state_to_sim(st, env_ids)
+            self.blocks[name].write_root_state_to_sim(st, env_ids=env_ids)
 
     # ----- state (full, restorable) --------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
-        return {"blocks": {n: b.data.root_state_w[env_ids].clone()
+        return {"blocks": {n: b.data.root_state_w.torch[env_ids].clone()
                            for n, b in self.blocks.items()}}
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         for n, b in self.blocks.items():
-            b.write_root_state_to_sim(state["blocks"][n], env_ids)
+            b.write_root_state_to_sim(state["blocks"][n], env_ids=env_ids)
 
     # ----- description ---------------------------------------------------------------------------
     def describe(self) -> str:
@@ -319,9 +319,9 @@ class StackBlocksScene(BaseScene):
     # ----- progress / rubric ---------------------------------------------------------------------
     def _block_tensors(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """(pos_w (N,B,3), quat_wxyz (N,B,4), |lin_vel| (N,B)) for all blocks, cfg order."""
-        pos = torch.stack([b.data.root_pos_w for b in self.blocks.values()], dim=1)
-        quat = torch.stack([b.data.root_quat_w for b in self.blocks.values()], dim=1)
-        vel = torch.stack([b.data.root_lin_vel_w.norm(dim=-1)
+        pos = torch.stack([b.data.root_pos_w.torch for b in self.blocks.values()], dim=1)
+        quat = torch.stack([b.data.root_quat_w.torch for b in self.blocks.values()], dim=1)
+        vel = torch.stack([b.data.root_lin_vel_w.torch.norm(dim=-1)
                            for b in self.blocks.values()], dim=1)
         return pos, quat, vel
 

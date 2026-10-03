@@ -260,7 +260,7 @@ class XArm7Robot(BaseRobot):
         # actuators — it is NOT pushed to PhysX — so write it through explicitly.
         # Zero it through the PHYSX VIEW, not `write_joint_friction_coefficient_to_sim`: for
         # implicit actuators that call updates only IsaacLab's data buffer, leaving PhysX's own
-        # coefficients at the authored 1.0 (`art.data.joint_friction_coeff` then reads 0.0 while
+        # coefficients at the authored 1.0 (`art.data.joint_friction_coeff.torch` then reads 0.0 while
         # the brake is still live). Same escape hatch `AttachedArmRobot.on_bind` uses.
         art = self.articulation
         fr = art.root_physx_view.get_dof_friction_coefficients()
@@ -293,14 +293,14 @@ class XArm7Robot(BaseRobot):
         """Home pose: default joint state; hold all joint position targets at default (the gripper PD
         holds, the arm targets are inert in torque mode). Root written to the fixed spawn pose + origin."""
         art = self.articulation
-        jp = art.data.default_joint_pos[env_ids].clone()
-        jv = art.data.default_joint_vel[env_ids].clone()
+        jp = art.data.default_joint_pos.torch[env_ids].clone()
+        jv = art.data.default_joint_vel.torch[env_ids].clone()
         art.write_joint_state_to_sim(jp, jv, env_ids=env_ids)
         art.set_joint_position_target(jp, env_ids=env_ids)
         art.set_joint_effort_target(torch.zeros_like(jp), env_ids=env_ids)
-        root = art.data.default_root_state[env_ids].clone()
+        root = art.data.default_root_state.torch[env_ids].clone()
         root[:, 0:3] += self.env.iscene.env_origins[env_ids]
-        art.write_root_state_to_sim(root, env_ids)
+        art.write_root_state_to_sim(root, env_ids=env_ids)
         if self.controller is not None:
             self.controller.reset(env_ids)
 

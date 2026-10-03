@@ -110,7 +110,7 @@ class Arm:
             num_envs=1,
             device=device,
         )
-        self.limits = art.data.joint_pos_limits.torch[:, self.arm_ids, :]
+        self.limits = art.data.joint_pos.torch_limits.torch[:, self.arm_ids, :]
         self.q_ref: torch.Tensor | None = None
         self.target_p: torch.Tensor | None = None
         self.target_q: torch.Tensor | None = None

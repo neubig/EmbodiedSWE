@@ -369,7 +369,7 @@ class PenHolderScene(BaseScene):
         st[:, 3] = torch.cos(half)
         st[:, 6] = torch.sin(half)
         st[:, 0:3] += origin
-        self.holder.write_root_state_to_sim(st, env_ids)
+        self.holder.write_root_state_to_sim(st, env_ids=env_ids)
 
         # --- pens: arc slot + jitter, lying FLAT with free yaw; absent -> parking depot ---
         # Overlap-rejected placement: a lying pen is a barrel_l-long segment, and tight
@@ -438,20 +438,20 @@ class PenHolderScene(BaseScene):
             st[:, 4] = -torch.sin(half) * c45
             st[:, 5] = torch.cos(half) * c45
             st[:, 6] = torch.sin(half) * c45
-            self.pens[name].write_root_state_to_sim(st, env_ids)
+            self.pens[name].write_root_state_to_sim(st, env_ids=env_ids)
 
     # ----- state (full, restorable) --------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         return {
-            "holder": self.holder.data.root_state_w[env_ids].clone(),
-            "pens": {n: b.data.root_state_w[env_ids].clone() for n, b in self.pens.items()},
+            "holder": self.holder.data.root_state_w.torch[env_ids].clone(),
+            "pens": {n: b.data.root_state_w.torch[env_ids].clone() for n, b in self.pens.items()},
             "present": self.present[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
-        self.holder.write_root_state_to_sim(state["holder"], env_ids)
+        self.holder.write_root_state_to_sim(state["holder"], env_ids=env_ids)
         for n, b in self.pens.items():
-            b.write_root_state_to_sim(state["pens"][n], env_ids)
+            b.write_root_state_to_sim(state["pens"][n], env_ids=env_ids)
         self.present[env_ids] = state["present"]
 
     # ----- description ---------------------------------------------------------------------------
@@ -478,9 +478,9 @@ class PenHolderScene(BaseScene):
     # ----- progress / rubric ----------------------------------------------------------------------
     def _pen_tensors(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """(pos_w (N,P,3), quat (N,P,4), |lin_vel| (N,P)) for all pens, manifest order."""
-        pos = torch.stack([b.data.root_pos_w for b in self.pens.values()], dim=1)
-        quat = torch.stack([b.data.root_quat_w for b in self.pens.values()], dim=1)
-        vel = torch.stack([b.data.root_lin_vel_w.norm(dim=-1)
+        pos = torch.stack([b.data.root_pos_w.torch for b in self.pens.values()], dim=1)
+        quat = torch.stack([b.data.root_quat_w.torch for b in self.pens.values()], dim=1)
+        vel = torch.stack([b.data.root_lin_vel_w.torch.norm(dim=-1)
                            for b in self.pens.values()], dim=1)
         return pos, quat, vel
 
@@ -496,8 +496,8 @@ class PenHolderScene(BaseScene):
         axis = quat_apply(quat.reshape(n * p, 4), ez).reshape(n, p, 3)
         bottom = pos - axis * self._half_l[None, :, None]
         tip = pos + axis * (self._half_l + self.cfg.tip_h)[None, :, None]
-        hq = self.holder.data.root_quat_w[:, None, :].expand(n, p, 4).reshape(n * p, 4)
-        hp = self.holder.data.root_pos_w[:, None, :]
+        hq = self.holder.data.root_quat_w.torch[:, None, :].expand(n, p, 4).reshape(n * p, 4)
+        hp = self.holder.data.root_pos_w.torch[:, None, :]
         b_loc = quat_apply_inverse(hq, (bottom - hp).reshape(n * p, 3)).reshape(n, p, 3)
         t_loc = quat_apply_inverse(hq, (tip - hp).reshape(n * p, 3)).reshape(n, p, 3)
         return b_loc, t_loc
@@ -507,7 +507,7 @@ class PenHolderScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        up = quat_apply(self.holder.data.root_quat_w, ez)
+        up = quat_apply(self.holder.data.root_quat_w.torch, ez)
         return up[:, 2].clamp(-1.0, 1.0) >= math.cos(math.radians(self.cfg.holder_tilt_max_deg))
 
     def inserted(self) -> torch.Tensor:
@@ -527,7 +527,7 @@ class PenHolderScene(BaseScene):
     def settled(self) -> torch.Tensor:
         """(N, P) bool: pen AND holder |lin vel| below `settle_speed`."""
         _p, _q, vel = self._pen_tensors()
-        holder_still = self.holder.data.root_lin_vel_w.norm(dim=-1) < self.cfg.settle_speed
+        holder_still = self.holder.data.root_lin_vel_w.torch.norm(dim=-1) < self.cfg.settle_speed
         return (vel < self.cfg.settle_speed) & holder_still.unsqueeze(-1)
 
     def counted(self) -> torch.Tensor:
@@ -546,11 +546,11 @@ class PenHolderScene(BaseScene):
 
         c = self.cfg
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        up = quat_apply(self.holder.data.root_quat_w, ez)
+        up = quat_apply(self.holder.data.root_quat_w.torch, ez)
         upright = up[:, 2].clamp(-1.0, 1.0) >= math.cos(math.radians(c.placed_tilt_deg))
-        bottom_z = (self.holder.data.root_pos_w - self.env_origins)[:, 2] - up[:, 2] * c.holder_h / 2
+        bottom_z = (self.holder.data.root_pos_w.torch - self.env_origins)[:, 2] - up[:, 2] * c.holder_h / 2
         on_surface = (bottom_z - c.surface_z).abs() < c.placed_z_tol
-        still = self.holder.data.root_lin_vel_w.norm(dim=-1) < c.settle_speed
+        still = self.holder.data.root_lin_vel_w.torch.norm(dim=-1) < c.settle_speed
         return upright & on_surface & still
 
     def score(self) -> torch.Tensor:

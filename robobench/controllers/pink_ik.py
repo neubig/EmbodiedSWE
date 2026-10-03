@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from robobench.core import CONTROLLERS, BaseController, BaseControllerCfg
+from robobench.core.compat import quat_wxyz_to_xyzw
 
 if TYPE_CHECKING:
     import torch
@@ -90,8 +91,12 @@ class PinkIKController(BaseController):
 
         from isaaclab.controllers.pink_ik import PinkIKController as _IsaacPinkIK
         from isaaclab.controllers.pink_ik.local_frame_task import LocalFrameTask
-        from isaaclab.controllers.pink_ik.null_space_posture_task import NullSpacePostureTask
-        from isaaclab.controllers.pink_ik.pink_ik_cfg import PinkIKControllerCfg as _IsaacCfg
+        from isaaclab.controllers.pink_ik.null_space_posture_task import (
+            NullSpacePostureTask,
+        )
+        from isaaclab.controllers.pink_ik.pink_ik_cfg import (
+            PinkIKControllerCfg as _IsaacCfg,
+        )
 
         c = self.cfg
         art = robot.articulation
@@ -157,7 +162,7 @@ class PinkIKController(BaseController):
         n = action.shape[0]
 
         # Base-link pose in the env frame, then its inverse (world->base).
-        base_w = art.data.body_link_state_w[:, self._base_idx, :7]  # (n, 7) pos+quat in world
+        base_w = art.data.body_link_state_w.torch[:, self._base_idx, :7]  # (n, 7) pos+quat in world
         base_pos = base_w[:, :3] - self.robot.env.iscene.env_origins
         base_inv = mu.pose_inv(mu.make_pose(base_pos, mu.matrix_from_quat(base_w[:, 3:7])))  # (n, 4, 4)
 
@@ -165,7 +170,9 @@ class PinkIKController(BaseController):
         pos_b, rot_b = [], []
         for fi in range(self._n_frames):
             s = fi * 7
-            pose_w = mu.make_pose(action[:, s : s + 3], mu.matrix_from_quat(action[:, s + 3 : s + 7]))
+            # Benchmark actions are WXYZ; Lab 3 math consumes native XYZW.
+            quat_xyzw = quat_wxyz_to_xyzw(action[:, s + 3 : s + 7])
+            pose_w = mu.make_pose(action[:, s : s + 3], mu.matrix_from_quat(quat_xyzw))
             p, R = mu.unmake_pose(mu.pose_in_A_to_pose_in_B(pose_w, base_inv))
             pos_b.append(p)
             rot_b.append(R)
@@ -173,7 +180,7 @@ class PinkIKController(BaseController):
         # Per env: set the frame-task targets, then solve. THIS LOOP IS THE SERIAL PART (one QP per
         # env, ~linear in num_envs — see the module docstring's PARALLELISM note); the prep above is
         # batched. A batched controller (diff_ik / pyroki) is the future swap for throughput.
-        cur_all = art.data.joint_pos.cpu().numpy()  # (n, num_joints)
+        cur_all = art.data.joint_pos.torch.cpu().numpy()  # (n, num_joints)
         out = []
         for env_i in range(n):
             ctrl = self._controllers[env_i]

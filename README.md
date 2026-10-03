@@ -24,17 +24,26 @@ See the [paper](https://arxiv.org/abs/2609.27308) for the full benchmark, evalua
 
 ## Installation
 
-Requirements: Linux, an NVIDIA GPU with a CUDA 12.x driver, and [`uv`](https://docs.astral.sh/uv/).
+Requirements: Linux, an NVIDIA GPU with a CUDA 12.x driver, Apptainer, and
+[`uv`](https://docs.astral.sh/uv/). Obtain the gated official Isaac Sim 6.1.0 container and
+`IsaacLab-3.0.0-EA` source archive from NVIDIA. The bootstrap verifies the exact artifacts used for
+this migration and creates a repository-local runtime; it does not modify a shared environment.
 
 ```bash
 git clone <this repo> && cd <this repo>
-./scripts/bootstrap_isaaclab_5_1.sh      # Isaac Sim 5.1 + Isaac Lab 2.3.2 + robobench into ./.venv
-source .venv/bin/activate
-export OMNI_KIT_ACCEPT_EULA=YES               # Isaac Sim asks interactively otherwise (hangs headless runs)
-# Optional: prefetch every task and room (~3.4 GB); otherwise env.build() fetches what it needs.
-python -m robobench.scripts.fetch_assets
-uv pip install "pin==2.7.0" "pin-pink==3.1.0" "daqp==0.8.5" "numpy==1.26.0"   # whole-body IK (pink_ik)
+export ISAAC_SIM_SIF=/path/to/isaac-sim-6.1.0.sif
+export ISAACLAB_ARCHIVE=/path/to/IsaacLab-3.0.0-EA.tar.gz
+./scripts/bootstrap_isaaclab_6_1.sh
+export OMNI_KIT_ACCEPT_EULA=YES
+# The script prints ready-to-run unit-test and Franka/OSC smoke commands.
 ```
+
+The validated reference artifacts have SHA-256
+`e1c36e8b837c956d2d4216258c6af42b2b049bfc159e05963a30353c2c337187` (Sim SIF) and
+`66d645d626d9714fb4a33594e4de94ded4b9991fb563185809b6ff1f02142d64` (Lab EA archive).
+Set `ISAAC_SIM_SHA256` or `ISAACLAB_SHA256` only when intentionally testing a different official
+build. Task assets are fetched on first build; use `python -m robobench.scripts.fetch_assets` inside
+the container to prefetch all of them.
 
 Task assets and shared rooms live in the Hugging Face dataset `EmbodiedSWE/robobench-assets`.
 Building an environment automatically downloads its required asset groups and verifies their SHA-256
@@ -62,6 +71,22 @@ python -m robobench.scripts.smoke --env assembly.bulb.franka.osc --livestream 2 
 
 Tasks are named `suite.scene[.robot[.control_mode]]`. The environment API and design are described
 in [`robobench/README.md`](robobench/README.md).
+
+### Isaac Sim 6.1 / Isaac Lab 3 migration status
+
+The defensible migrated vertical slice is `assembly.bulb.franka.osc`: the real Franka articulation
+resets, the OSC controller writes effort and advances physics, native XYZW simulator state snapshots
+round-trip, and `BulbAssemblyGrader` records/verdicts correctly. Run
+`robobench.suites.assembly.smokes.bulb_franka_osc_smoke` using the command printed by the bootstrap.
+The grader is privileged-state based and does **not** consume camera pixels; the task still declares
+`front` and Franka `wrist` cameras for observation/data-generation pipelines.
+
+A separate `assembly.nut_thread` scene-physics smoke has also passed. These results do not validate
+every registered task or embodiment. In particular, the remaining assembly variants, packing,
+puzzle, cutting, locomanip, deformable/Newton, multi-environment batches, non-Franka robots,
+`diff_ik`/`pink_ik`/joint modes, camera recording, and policy/data-generation pipelines have not been
+runtime-qualified on Sim 6.1/Lab 3 EA. Their config quaternions and raw PhysX array/write boundaries
+must be audited at each external-WXYZ/native-XYZW interface before claiming support.
 
 **A few examples from EmbodiedSWE-Bench:**
 

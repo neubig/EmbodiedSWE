@@ -31,7 +31,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from robobench.core.assets import asset_path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
@@ -50,6 +49,12 @@ from robobench.controllers import (
     TaskSpaceImpedanceController,
 )
 from robobench.core import ROBOTS, BaseRobot, BaseRobotCfg
+from robobench.core.assets import asset_path
+from robobench.core.compat import (
+    quat_wxyz_to_xyzw,
+    write_joint_state_native,
+    write_root_state_native,
+)
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
@@ -160,7 +165,7 @@ class FrankaRobot(BaseRobot):
         robot.spawn.usd_path = c.franka_usd  # vendored local panda (resolved in cfg.__post_init__)
         robot.spawn.articulation_props.fix_root_link = c.fixed_base
         robot.init_state.pos = c.base_pos
-        robot.init_state.rot = c.base_rot
+        robot.init_state.rot = quat_wxyz_to_xyzw(c.base_rot)
         # Home the 7 arm joints to cfg.default_dof_pos (reset() reads this via default_joint_pos);
         # keep the gripper-finger defaults.
         robot.init_state.joint_pos = {
@@ -180,7 +185,9 @@ class FrankaRobot(BaseRobot):
         if c.gravity_compensation is not None:
             # Newton-backend gravity compensation: swap in the MuJoCo rigid-body schema carrying
             # `gravcomp` (imported lazily so the PhysX/2.x venv never touches isaaclab_newton).
-            from isaaclab_newton.sim.schemas.schemas_cfg import MujocoRigidBodyPropertiesCfg
+            from isaaclab_newton.sim.schemas.schemas_cfg import (
+                MujocoRigidBodyPropertiesCfg,
+            )
 
             robot.spawn.rigid_props = MujocoRigidBodyPropertiesCfg(gravcomp=c.gravity_compensation)
         if c.disable_arm_gravity:
@@ -245,14 +252,14 @@ class FrankaRobot(BaseRobot):
         """Home pose: default joint state; hold all joint position targets at default (the gripper PD
         holds, the arm targets are inert in torque mode). Root written to the fixed spawn pose + origin."""
         art = self.articulation
-        jp = art.data.default_joint_pos[env_ids].clone()
-        jv = art.data.default_joint_vel[env_ids].clone()
-        art.write_joint_state_to_sim(jp, jv, env_ids=env_ids)
+        jp = art.data.default_joint_pos.torch[env_ids].clone()
+        jv = art.data.default_joint_vel.torch[env_ids].clone()
+        write_joint_state_native(art, jp, jv, env_ids)
         art.set_joint_position_target(jp, env_ids=env_ids)
         art.set_joint_effort_target(torch.zeros_like(jp), env_ids=env_ids)
-        root = art.data.default_root_state[env_ids].clone()
+        root = art.data.default_root_state.torch[env_ids].clone()
         root[:, 0:3] += self.env.iscene.env_origins[env_ids]
-        art.write_root_state_to_sim(root, env_ids)
+        write_root_state_native(art, root, env_ids)
         if self.controller is not None:
             self.controller.reset(env_ids)
 

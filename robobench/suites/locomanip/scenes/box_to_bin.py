@@ -344,7 +344,7 @@ class BoxToBinScene(BaseScene):
         already elsewhere — in the bin, say — from tripping the arm). `transited` = it then
         travelled most of the way to the bin. Both are one-way: they prove the path was walked;
         the live `placed()` predicate is what proves the destination."""
-        p = self.box.data.root_pos_w - self.env_origins
+        p = self.box.data.root_pos_w.torch - self.env_origins
         c = self.cfg
         rest_z = c.pick_board_z + c.BOX_HALF
         up = p[:, 2] > rest_z + c.lift_h
@@ -364,7 +364,7 @@ class BoxToBinScene(BaseScene):
         if c.reset_pos_jitter:
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
         st[:, 3:7] = torch.tensor(c.box_init_quat, device=dev)
-        self.box.write_root_state_to_sim(st, env_ids)
+        self.box.write_root_state_to_sim(st, env_ids=env_ids)
         self._lifted[env_ids] = False
         self._transited[env_ids] = False
 
@@ -374,14 +374,14 @@ class BoxToBinScene(BaseScene):
         else in the scene is static furniture. The latches travel with the state so a snapshot
         restored mid-carry does not silently lose the milestones already earned."""
         return {
-            "box": self.box.data.root_state_w[env_ids].clone(),
+            "box": self.box.data.root_state_w.torch[env_ids].clone(),
             "lifted": self._lifted[env_ids].clone(),
             "transited": self._transited[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore `get_state`: the box's root state and the journey latches."""
-        self.box.write_root_state_to_sim(state["box"], env_ids)
+        self.box.write_root_state_to_sim(state["box"], env_ids=env_ids)
         self._lifted[env_ids] = state["lifted"]
         self._transited[env_ids] = state["transited"]
 
@@ -434,20 +434,20 @@ class BoxToBinScene(BaseScene):
         across the rim at +0.151), and settled to under `settle_vel` on every axis.
         Embodiment-agnostic by construction: it reads the box and the bin only, never the robot."""
         (x0, x1), (y0, y1), max_z = self.cfg.place_box_world()
-        p = self.box.data.root_pos_w - self.env_origins  # env-local, like every target here
+        p = self.box.data.root_pos_w.torch - self.env_origins  # env-local, like every target here
         inside = (p[:, 0] > x0) & (p[:, 0] < x1) & (p[:, 1] > y0) & (p[:, 1] < y1) & (p[:, 2] < max_z)
         return inside & self.settled()
 
     def settled(self) -> torch.Tensor:
         """Whether the box has come to rest, `(num_envs,)`: every component of its linear AND
         angular velocity under `settle_vel`."""
-        return self.box.data.root_vel_w.abs().amax(dim=-1) < self.cfg.settle_vel
+        return self.box.data.root_vel_w.torch.abs().amax(dim=-1) < self.cfg.settle_vel
 
     def dropped(self) -> torch.Tensor:
         """Whether the box has fallen to the floor, `(num_envs,)` — a readable signal, not a forced
         reset: this scene never terminates an episode on its own. A live hazard for the whole
         transit, since the box spends the walk in mid-air."""
-        z = self.box.data.root_pos_w[:, 2] - self.env_origins[:, 2]
+        z = self.box.data.root_pos_w.torch[:, 2] - self.env_origins[:, 2]
         return z < self.cfg.drop_z
 
     def carried_fraction(self) -> torch.Tensor:
@@ -456,7 +456,7 @@ class BoxToBinScene(BaseScene):
         about), not on the robot. Unlike wheel_carry's straight-x corridor this transit turns, so
         the fraction is radial: 1 - (xy distance left to the bin center) / (the full span)."""
         c = self.cfg
-        p = self.box.data.root_pos_w - self.env_origins
+        p = self.box.data.root_pos_w.torch - self.env_origins
         target = torch.tensor(c.bin_pos, device=p.device)
         span = float(torch.tensor(
             [c.box_init[0] - c.bin_pos[0], c.box_init[1] - c.bin_pos[1]]).norm())
@@ -466,4 +466,4 @@ class BoxToBinScene(BaseScene):
     def box_pose(self) -> tuple[torch.Tensor, torch.Tensor]:
         """The box's ENV-LOCAL position `(num_envs, 3)` and orientation `(num_envs, 4)` wxyz — the
         frame every target in this scene is quoted in."""
-        return self.box.data.root_pos_w - self.env_origins, self.box.data.root_quat_w
+        return self.box.data.root_pos_w.torch - self.env_origins, self.box.data.root_quat_w.torch

@@ -53,10 +53,10 @@ class FruitDeliveryGrader(BaseGrader):
         from isaaclab.utils.math import quat_apply_inverse
 
         s = self.scene
-        pp, pq = s.plate.data.root_pos_w, s.plate.data.root_quat_w
+        pp, pq = s.plate.data.root_pos_w.torch, s.plate.data.root_quat_w.torch
         cols = []
         for name in s.names:
-            loc = quat_apply_inverse(pq, s.items[name].data.root_pos_w - pp)
+            loc = quat_apply_inverse(pq, s.items[name].data.root_pos_w.torch - pp)
             cols.append((loc[:, :2] - s._plate_center).norm(dim=-1))
         return torch.stack(cols, dim=1)
 
@@ -70,7 +70,7 @@ class FruitDeliveryGrader(BaseGrader):
         import torch
 
         s = self.scene
-        z = torch.stack([s.items[n].data.root_pos_w[:, 2] for n in s.names], dim=1)[:, s._fruit_idx]
+        z = torch.stack([s.items[n].data.root_pos_w.torch[:, 2] for n in s.names], dim=1)[:, s._fruit_idx]
         z = z - s.env_origins[:, 2:3]
         return self._frac_present(z > s.cfg.surface_z + s.cfg.plate_rim_z)
 

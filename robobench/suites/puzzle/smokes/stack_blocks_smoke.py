@@ -164,7 +164,7 @@ def main() -> None:
             qw, qx, qy, qz = q
             tw, tx = math.cos(half_t), math.sin(half_t)
             q = (tw * qw - tx * qx, tw * qx + tx * qw, tw * qy + tx * qz, tw * qz - tx * qy)
-        scene.blocks[name].write_root_state_to_sim(block_state(xy, slot_z(level) + gap, q), all_ids)
+        scene.blocks[name].write_root_state_to_sim(block_state(xy, slot_z(level) + gap, q), env_ids=all_ids)
 
     def topple_flat(name: str, xy) -> None:
         """Lay a block on its side, flat on the surface at xy (a knocked-over block)."""

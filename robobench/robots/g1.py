@@ -267,14 +267,14 @@ class G1Robot(BaseRobot):
         """Home pose: default joint state, and all joint position targets held at default (so the
         un-driven legs stay put). Root written to the (fixed) spawn pose + env origin."""
         art = self.articulation
-        jp = art.data.default_joint_pos[env_ids].clone()
-        jv = art.data.default_joint_vel[env_ids].clone()
+        jp = art.data.default_joint_pos.torch[env_ids].clone()
+        jv = art.data.default_joint_vel.torch[env_ids].clone()
         art.write_joint_state_to_sim(jp, jv, env_ids=env_ids)
         art.set_joint_position_target(jp, env_ids=env_ids)  # hold every joint; step() overrides the driven subset
         art.set_joint_effort_target(torch.zeros_like(jp), env_ids=env_ids)
-        root = art.data.default_root_state[env_ids].clone()
+        root = art.data.default_root_state.torch[env_ids].clone()
         root[:, 0:3] += self.env.iscene.env_origins[env_ids]
-        art.write_root_state_to_sim(root, env_ids)
+        art.write_root_state_to_sim(root, env_ids=env_ids)
         if self.controller is not None:
             self.controller.reset(env_ids)
 

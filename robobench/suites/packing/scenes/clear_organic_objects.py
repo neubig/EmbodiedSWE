@@ -611,7 +611,7 @@ class ClearOrganicObjectsScene(BaseScene):
         broot[:, 3] = math.cos(bin_half)
         broot[:, 6] = math.sin(bin_half)
         broot[:, 0:3] += origin
-        self.bin.write_root_state_to_sim(broot, env_ids)
+        self.bin.write_root_state_to_sim(broot, env_ids=env_ids)
         if self.tray is not None:
             troot = torch.zeros(m, 13, device=dev)
             troot[:, 0] = wx + c.tray_pos[0] - float(self._tray_center_local[0])
@@ -619,7 +619,7 @@ class ClearOrganicObjectsScene(BaseScene):
             troot[:, 2] = z0
             troot[:, 3] = 1.0
             troot[:, 0:3] += origin
-            self.tray.write_root_state_to_sim(troot, env_ids)
+            self.tray.write_root_state_to_sim(troot, env_ids=env_ids)
         self._flags[env_ids] = False
 
         # --- items: grid slot (optionally permuted) + jitter + free yaw; absent -> depot ---
@@ -683,21 +683,21 @@ class ClearOrganicObjectsScene(BaseScene):
                 st[absent, 1] = wy + 1.2 + 0.16 * (i // 3)
                 st[absent, 2] = z0 - c.TABLES[c.table]["height"] + 0.05
             st[:, 0:3] += origin
-            self.items[name].write_root_state_to_sim(st, env_ids)
+            self.items[name].write_root_state_to_sim(st, env_ids=env_ids)
 
     # ----- state (full, restorable) --------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         return {
-            "bin": self.bin.data.root_state_w[env_ids].clone(),
-            "items": {n: b.data.root_state_w[env_ids].clone() for n, b in self.items.items()},
+            "bin": self.bin.data.root_state_w.torch[env_ids].clone(),
+            "items": {n: b.data.root_state_w.torch[env_ids].clone() for n, b in self.items.items()},
             "present": self.present[env_ids].clone(),
             "flags": self._flags[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
-        self.bin.write_root_state_to_sim(state["bin"], env_ids)
+        self.bin.write_root_state_to_sim(state["bin"], env_ids=env_ids)
         for n, b in self.items.items():
-            b.write_root_state_to_sim(state["items"][n], env_ids)
+            b.write_root_state_to_sim(state["items"][n], env_ids=env_ids)
         self.present[env_ids] = state["present"]
         if "flags" in state:
             self._flags[env_ids] = state["flags"].to(self._flags.device)
@@ -761,11 +761,11 @@ class ClearOrganicObjectsScene(BaseScene):
         bin's body frame (bin motion is irrelevant)."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        bp = self.bin.data.root_pos_w  # (N, 3)
-        bq = self.bin.data.root_quat_w  # (N, 4)
+        bp = self.bin.data.root_pos_w.torch  # (N, 3)
+        bq = self.bin.data.root_quat_w.torch  # (N, 4)
         cols = []
         for name in self.names:
-            loc = quat_apply_inverse(bq, self.items[name].data.root_pos_w - bp)
+            loc = quat_apply_inverse(bq, self.items[name].data.root_pos_w.torch - bp)
             inside_xy = (loc[:, :2].abs() <= self._bin_inner).all(dim=-1)
             inside_z = (loc[:, 2] >= self._bin_floor) & (loc[:, 2] <= self._bin_rim)
             cols.append(inside_xy & inside_z)
@@ -773,7 +773,7 @@ class ClearOrganicObjectsScene(BaseScene):
 
     def _speed(self) -> torch.Tensor:
         """(N, n_items) |lin vel| per item."""
-        return torch.stack([b.data.root_lin_vel_w.norm(dim=-1)
+        return torch.stack([b.data.root_lin_vel_w.torch.norm(dim=-1)
                             for b in self.items.values()], dim=1)
 
     def cleared(self) -> torch.Tensor:
@@ -787,11 +787,11 @@ class ClearOrganicObjectsScene(BaseScene):
 
         if self.tray is None:
             return torch.zeros_like(self.present)
-        tp = self.tray.data.root_pos_w
-        tq = self.tray.data.root_quat_w
+        tp = self.tray.data.root_pos_w.torch
+        tq = self.tray.data.root_quat_w.torch
         cols = []
         for name in self.names:
-            loc = quat_apply_inverse(tq, self.items[name].data.root_pos_w - tp)
+            loc = quat_apply_inverse(tq, self.items[name].data.root_pos_w.torch - tp)
             loc = loc - self._tray_center_local
             inside_xy = loc[:, :2].norm(dim=-1) <= self._tray_radius
             inside_z = (loc[:, 2] >= 0.0) & (loc[:, 2] <= self._tray_top + self.cfg.tray_stack)

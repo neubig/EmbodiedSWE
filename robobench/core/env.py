@@ -46,6 +46,7 @@ class BaseEnv:
         device: str = "cuda:0",
         seed: int | None = None,
         room: dict | None = None,
+        renderer_settings: dict[str, Any] | None = None,
     ) -> None:
         from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
         from isaaclab.sim import SimulationContext  # lazy: requires AppLauncher
@@ -61,6 +62,13 @@ class BaseEnv:
 
         ensure_environment_assets(scene, robot)
         self.sim = SimulationContext(sim_cfg)
+        if renderer_settings:
+            from isaaclab_physx.renderers import IsaacRtxRendererGlobalSettingsCfg
+            from isaaclab_physx.renderers.isaac_rtx_renderer_utils import (
+                apply_isaac_rtx_global_settings,
+            )
+
+            apply_isaac_rtx_global_settings(IsaacRtxRendererGlobalSettingsCfg(**renderer_settings))
         iscene_cfg = InteractiveSceneCfg(num_envs=num_envs, env_spacing=env_spacing)
         for name, asset in {**scene.assets(), **robot.assets()}.items():
             setattr(iscene_cfg, name, asset)

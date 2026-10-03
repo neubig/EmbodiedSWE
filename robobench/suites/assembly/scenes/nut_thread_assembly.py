@@ -20,8 +20,10 @@ from robobench.core.assets import asset_path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
+import warp as wp
 
 from robobench.core import SCENES, BaseCfg, BaseScene, SimCfg
+from robobench.core.compat import quat_wxyz_to_xyzw
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation, RigidObject
@@ -142,7 +144,7 @@ class NutThreadAssemblyScene(BaseScene):
             ),
             "workbench": AssetBaseCfg(
                 prim_path="{ENV_REGEX_NS}/Table",
-                init_state=AssetBaseCfg.InitialStateCfg(pos=(wx, wy, table_z), rot=preset["orient"]),
+                init_state=AssetBaseCfg.InitialStateCfg(pos=(wx, wy, table_z), rot=quat_wxyz_to_xyzw(preset["orient"])),
                 spawn=table_spawn,
             ),
         }
@@ -163,7 +165,7 @@ class NutThreadAssemblyScene(BaseScene):
                     ),
                 ),
                 init_state=ArticulationCfg.InitialStateCfg(
-                    pos=(wx + bx, wy + by, c.surface_z), rot=(1.0, 0.0, 0.0, 0.0), joint_pos={}, joint_vel={}
+                    pos=(wx + bx, wy + by, c.surface_z), rot=(0.0, 0.0, 0.0, 1.0), joint_pos={}, joint_vel={}
                 ),
                 actuators={},
             )
@@ -221,8 +223,8 @@ class NutThreadAssemblyScene(BaseScene):
     def _set_friction(self, asset, value: float) -> None:
         """Overwrite the static + dynamic friction on every shape of `asset` (across all envs)."""
         mats = asset.root_physx_view.get_material_properties()
-        mats[..., 0:2] = value  # [static, dynamic, restitution]
-        asset.root_physx_view.set_material_properties(mats, torch.arange(self.env.num_envs, device="cpu"))
+        wp.to_torch(mats)[..., 0:2] = value  # [static, dynamic, restitution]
+        asset.root_physx_view.set_material_properties(mats, wp.array(range(self.env.num_envs), dtype=wp.int32, device="cpu"))
 
     def reset(self, env_ids: torch.Tensor) -> None:
         """Fresh, unassembled start: the bolts stand upright on the table and the nuts rest flat on it
@@ -240,25 +242,25 @@ class NutThreadAssemblyScene(BaseScene):
             st = torch.zeros(m, 13, device=dev)
             st[:, 0:3] = origin + torch.tensor((wx + x, wy + y, c.surface_z + c.nut_init_z), device=dev)
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
-            st[:, 3:7] = quat
-            nut.write_root_state_to_sim(st, env_ids)
+            st[:, 3:7] = quat_wxyz_to_xyzw(quat)
+            nut.write_root_state_to_sim(st, env_ids=env_ids)
 
     # ----- state (full, restorable) -------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """Restorable scene state for `env_ids`: world root states (pos+quat+lin/ang vel, 13) of each
         bolt and each nut. (Bolts are fixed, but capturing them keeps the snapshot self-describing.)"""
         return {
-            "bolts": torch.stack([bolt.data.root_state_w[env_ids].clone() for bolt in self.bolts], dim=1),
-            "nuts": torch.stack([nut.data.root_state_w[env_ids].clone() for nut in self.nuts], dim=1),
+            "bolts": torch.stack([bolt.data.root_state_w.torch[env_ids].clone() for bolt in self.bolts], dim=1),
+            "nuts": torch.stack([nut.data.root_state_w.torch[env_ids].clone() for nut in self.nuts], dim=1),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore what `get_state` returned: write each bolt pose and each nut's full root state. The
         nut's threaded height is fully captured by its root state, so thread friction holds it on restore."""
         for i, bolt in enumerate(self.bolts):
-            bolt.write_root_pose_to_sim(state["bolts"][:, i, 0:7], env_ids)
+            bolt.write_root_pose_to_sim(state["bolts"][:, i, 0:7], env_ids=env_ids)
         for i, nut in enumerate(self.nuts):
-            nut.write_root_state_to_sim(state["nuts"][:, i], env_ids)
+            nut.write_root_state_to_sim(state["nuts"][:, i], env_ids=env_ids)
 
     # ----- description --------------------------------------------------------------------------
     def describe(self) -> str:
@@ -302,11 +304,11 @@ class NutThreadAssemblyScene(BaseScene):
         the bolt frame, so it is correct even if a bolt is placed with a yaw."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        bp = torch.stack([b.data.root_pos_w for b in self.bolts], dim=1)  # (n, B, 3)
-        bq = torch.stack([b.data.root_quat_w for b in self.bolts], dim=1)  # (n, B, 4)
+        bp = torch.stack([b.data.root_pos_w.torch for b in self.bolts], dim=1)  # (n, B, 3)
+        bq = torch.stack([b.data.root_quat_w.torch for b in self.bolts], dim=1)  # (n, B, 4)
         cols = []
         for nut in self.nuts:  # for each nut, its offset in every bolt frame
-            rel = nut.data.root_pos_w[:, None, :] - bp  # (n, B, 3)
+            rel = nut.data.root_pos_w.torch[:, None, :] - bp  # (n, B, 3)
             cols.append(quat_apply_inverse(bq, rel))  # (n, B, 3)
         return torch.stack(cols, dim=1)  # (n, N, B, 3)
 
@@ -318,8 +320,8 @@ class NutThreadAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        bolts_up = torch.stack([quat_apply(b.data.root_quat_w, ez) for b in self.bolts], dim=1)  # (n, B, 3)
-        nuts_up = torch.stack([quat_apply(nut.data.root_quat_w, ez) for nut in self.nuts], dim=1)  # (n, N, 3)
+        bolts_up = torch.stack([quat_apply(b.data.root_quat_w.torch, ez) for b in self.bolts], dim=1)  # (n, B, 3)
+        nuts_up = torch.stack([quat_apply(nut.data.root_quat_w.torch, ez) for nut in self.nuts], dim=1)  # (n, N, 3)
         # nearest bolt per nut (by lateral xy), then cos against that bolt's axis
         off = self._nut_offsets_in_bolt()  # (n, N, B, 3)
         near_bolt = off[..., :2].norm(dim=-1).argmin(dim=-1)  # (n, N)

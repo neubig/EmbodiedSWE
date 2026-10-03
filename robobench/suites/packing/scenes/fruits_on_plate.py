@@ -561,7 +561,7 @@ class FruitsOnPlateScene(BaseScene):
         proot[:, 3] = q[0]
         proot[:, 6] = q[3]
         proot[:, 0:3] += origin
-        self.plate.write_root_state_to_sim(proot, env_ids)
+        self.plate.write_root_state_to_sim(proot, env_ids=env_ids)
 
         # --- items: grid slot (optionally permuted) + jitter + free yaw; absent -> depot ---
         n = len(c.manifest)
@@ -613,20 +613,20 @@ class FruitsOnPlateScene(BaseScene):
                 st[absent, 1] = wy + 1.2 + 0.16 * (i // 3)
                 st[absent, 2] = self._ground_z() + 0.05
             st[:, 0:3] += origin
-            self.items[name].write_root_state_to_sim(st, env_ids)
+            self.items[name].write_root_state_to_sim(st, env_ids=env_ids)
 
     # ----- state (full, restorable) -----------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         return {
-            "plate": self.plate.data.root_state_w[env_ids].clone(),
-            "items": {n: b.data.root_state_w[env_ids].clone() for n, b in self.items.items()},
+            "plate": self.plate.data.root_state_w.torch[env_ids].clone(),
+            "items": {n: b.data.root_state_w.torch[env_ids].clone() for n, b in self.items.items()},
             "present": self.present[env_ids].clone(),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
-        self.plate.write_root_state_to_sim(state["plate"], env_ids)
+        self.plate.write_root_state_to_sim(state["plate"], env_ids=env_ids)
         for n, b in self.items.items():
-            b.write_root_state_to_sim(state["items"][n], env_ids)
+            b.write_root_state_to_sim(state["items"][n], env_ids=env_ids)
         self.present[env_ids] = state["present"]
 
     # ----- description ------------------------------------------------------------------------
@@ -664,11 +664,11 @@ class FruitsOnPlateScene(BaseScene):
         GEOMETRIC CENTRE."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        pp = self.plate.data.root_pos_w  # (N, 3) — the prim origin, not the dish centre
-        pq = self.plate.data.root_quat_w  # (N, 4)
+        pp = self.plate.data.root_pos_w.torch  # (N, 3) — the prim origin, not the dish centre
+        pq = self.plate.data.root_quat_w.torch  # (N, 4)
         cols = []
         for name in self.names:
-            loc = quat_apply_inverse(pq, self.items[name].data.root_pos_w - pp)
+            loc = quat_apply_inverse(pq, self.items[name].data.root_pos_w.torch - pp)
             radial = (loc[:, :2] - self._plate_center).norm(dim=-1)
             inside_xy = radial <= self._plate_r
             inside_z = (loc[:, 2] >= self._plate_floor) & (loc[:, 2] <= self._plate_ceil)
@@ -677,7 +677,7 @@ class FruitsOnPlateScene(BaseScene):
 
     def _speed(self) -> torch.Tensor:
         """(N, n_items) |lin vel| per item."""
-        return torch.stack([b.data.root_lin_vel_w.norm(dim=-1)
+        return torch.stack([b.data.root_lin_vel_w.torch.norm(dim=-1)
                             for b in self.items.values()], dim=1)
 
     def placed(self) -> torch.Tensor:

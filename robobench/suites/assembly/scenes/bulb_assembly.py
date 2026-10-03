@@ -12,12 +12,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from robobench.core.assets import asset_path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
+import warp as wp
 
 from robobench.core import SCENES, BaseCfg, BaseScene, SimCfg
+from robobench.core.assets import asset_path
+from robobench.core.compat import (
+    quat_wxyz_to_xyzw,
+    write_root_pose_native,
+    write_root_state_native,
+)
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation, RigidObject
@@ -179,7 +185,9 @@ class BulbAssemblyScene(BaseScene):
             ),
             "workbench": AssetBaseCfg(
                 prim_path="{ENV_REGEX_NS}/Table",
-                init_state=AssetBaseCfg.InitialStateCfg(pos=(wx, wy, table_z), rot=preset["orient"]),
+                init_state=AssetBaseCfg.InitialStateCfg(
+                    pos=(wx, wy, table_z), rot=quat_wxyz_to_xyzw(preset["orient"])
+                ),
                 spawn=table_spawn,
             ),
         }
@@ -194,7 +202,7 @@ class BulbAssemblyScene(BaseScene):
                 prim_path="{ENV_REGEX_NS}/Socket_%d" % i,
                 spawn=sim_utils.UsdFileCfg(usd_path=c.socket_usd, activate_contact_sensors=True, rigid_props=high_iters),
                 init_state=ArticulationCfg.InitialStateCfg(
-                    pos=(wx + sx, wy + sy, c.surface_z), rot=(1.0, 0.0, 0.0, 0.0), joint_pos={}, joint_vel={}
+                    pos=(wx + sx, wy + sy, c.surface_z), rot=(0.0, 0.0, 0.0, 1.0), joint_pos={}, joint_vel={}
                 ),
                 actuators={},
             )
@@ -262,21 +270,22 @@ class BulbAssemblyScene(BaseScene):
         unknown = set(values) - set(self.PHYSICAL_PARAMS)
         if unknown:
             raise ValueError(f"{type(self).__name__} cannot apply per-env: {sorted(unknown)}")
-        ids = torch.arange(env.num_envs, device="cpu")
+        ids = wp.array(range(env.num_envs), dtype=wp.int32, device="cpu")
         if "socket_friction" in values:
             col = torch.tensor(values["socket_friction"], dtype=torch.float32).view(-1, 1, 1)
             for s in self.sockets:
                 mats = s.root_physx_view.get_material_properties()
-                mats[..., 0:2] = col
+                wp.to_torch(mats)[..., 0:2] = col
                 s.root_physx_view.set_material_properties(mats, ids)
         if "bulb_friction" in values or "bulb_glass_friction" in values:
             for b in self.bulbs:
-                mats = b.root_physx_view.get_material_properties()  # (n, n_shapes, 3)
-                glass = int(mats[0, :, 0].argmax())  # detect BEFORE writing (glass stays grippiest)
+                mats = b.root_physx_view.get_material_properties()  # Warp (n, n_shapes, 3)
+                mats_torch = wp.to_torch(mats)
+                glass = int(mats_torch[0, :, 0].argmax())  # detect before writing
                 if "bulb_friction" in values:
-                    mats[..., 0:2] = torch.tensor(values["bulb_friction"], dtype=torch.float32).view(-1, 1, 1)
+                    mats_torch[..., 0:2] = torch.tensor(values["bulb_friction"], dtype=torch.float32).view(-1, 1, 1)
                 if "bulb_glass_friction" in values:
-                    mats[:, glass, 0:2] = torch.tensor(values["bulb_glass_friction"], dtype=torch.float32).view(-1, 1)
+                    mats_torch[:, glass, 0:2] = torch.tensor(values["bulb_glass_friction"], dtype=torch.float32).view(-1, 1)
                 b.root_physx_view.set_material_properties(mats, ids)
 
     def bind(self, env: BaseEnv) -> None:
@@ -313,14 +322,14 @@ class BulbAssemblyScene(BaseScene):
         origin = self.env_origins[env_ids]  # (m, 3)
         wx, wy = c.workbench_pos
 
-        quat = torch.tensor(c.bulb_init_quat, device=dev)
+        quat = quat_wxyz_to_xyzw(torch.tensor(c.bulb_init_quat, device=dev))
         for k, bulb in enumerate(self.bulbs):
             x, y = c.bulb_init_xy[k]
             st = torch.zeros(m, 13, device=dev)
             st[:, 0:3] = origin + torch.tensor((wx + x, wy + y, c.surface_z + c.bulb_init_z), device=dev)
             st[:, 0:2] += (torch.rand(m, 2, device=dev) * 2 - 1) * c.reset_pos_jitter
             st[:, 3:7] = quat
-            bulb.write_root_state_to_sim(st, env_ids)
+            write_root_state_native(bulb, st, env_ids)
 
     # filament colour endpoints: low current -> cool filament, warm yellow; full current -> warm white.
     _LIT_COLOR: ClassVar[tuple[float, float, float]] = (1.0, 0.85, 0.55)
@@ -349,23 +358,23 @@ class BulbAssemblyScene(BaseScene):
                 if attrs is not None:
                     s = float(q[n, i]) / 64.0  # 0..1 brightness fraction
                     attrs[0].Set(c.lit_intensity * s)
-                    attrs[1].Set(tuple(d + (l - d) * s for d, l in zip(self._DIM_COLOR, self._LIT_COLOR)))
+                    attrs[1].Set(tuple(dim + (lit - dim) * s for dim, lit in zip(self._DIM_COLOR, self._LIT_COLOR)))
             self._lit_q = q
 
     # ----- state (full, restorable) -------------------------------------------------------------
     def get_state(self, env_ids: torch.Tensor) -> dict[str, Any]:
         """Restorable state: world root states (13) of each socket + bulb."""
         return {
-            "sockets": torch.stack([s.data.root_state_w[env_ids].clone() for s in self.sockets], dim=1),
-            "bulbs": torch.stack([b.data.root_state_w[env_ids].clone() for b in self.bulbs], dim=1),
+            "sockets": torch.stack([s.data.root_state_w.torch[env_ids].clone() for s in self.sockets], dim=1),
+            "bulbs": torch.stack([b.data.root_state_w.torch[env_ids].clone() for b in self.bulbs], dim=1),
         }
 
     def set_state(self, state: dict[str, Any], env_ids: torch.Tensor) -> None:
         """Restore `get_state`: write each socket pose + each bulb's root state (thread friction holds it)."""
         for i, socket in enumerate(self.sockets):
-            socket.write_root_pose_to_sim(state["sockets"][:, i, 0:7], env_ids)
+            write_root_pose_native(socket, state["sockets"][:, i, 0:7], env_ids)
         for i, bulb in enumerate(self.bulbs):
-            bulb.write_root_state_to_sim(state["bulbs"][:, i], env_ids)
+            write_root_state_native(bulb, state["bulbs"][:, i], env_ids)
 
     # ----- description --------------------------------------------------------------------------
     def describe(self) -> str:
@@ -407,11 +416,11 @@ class BulbAssemblyScene(BaseScene):
         socket axis, z = height above the socket origin (correct even if a socket is yawed)."""
         from isaaclab.utils.math import quat_apply_inverse
 
-        sp = torch.stack([s.data.root_pos_w for s in self.sockets], dim=1)  # (n, B, 3)
-        sq = torch.stack([s.data.root_quat_w for s in self.sockets], dim=1)  # (n, B, 4)
+        sp = torch.stack([s.data.root_pos_w.torch for s in self.sockets], dim=1)  # (n, B, 3)
+        sq = torch.stack([s.data.root_quat_w.torch for s in self.sockets], dim=1)  # (n, B, 4)
         cols = []
         for bulb in self.bulbs:  # for each bulb, its offset in every socket frame
-            rel = bulb.data.root_pos_w[:, None, :] - sp  # (n, B, 3)
+            rel = bulb.data.root_pos_w.torch[:, None, :] - sp  # (n, B, 3)
             cols.append(quat_apply_inverse(sq, rel))  # (n, B, 3)
         return torch.stack(cols, dim=1)  # (n, N, B, 3)
 
@@ -421,8 +430,8 @@ class BulbAssemblyScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        sockets_up = torch.stack([quat_apply(s.data.root_quat_w, ez) for s in self.sockets], dim=1)  # (n, B, 3)
-        bulbs_up = torch.stack([quat_apply(b.data.root_quat_w, ez) for b in self.bulbs], dim=1)  # (n, N, 3)
+        sockets_up = torch.stack([quat_apply(s.data.root_quat_w.torch, ez) for s in self.sockets], dim=1)  # (n, B, 3)
+        bulbs_up = torch.stack([quat_apply(b.data.root_quat_w.torch, ez) for b in self.bulbs], dim=1)  # (n, N, 3)
         off = self._bulb_offsets_in_socket()  # (n, N, B, 3)
         near_socket = off[..., :2].norm(dim=-1).argmin(dim=-1)  # (n, N)
         chosen_up = torch.gather(sockets_up, 1, near_socket.unsqueeze(-1).expand(-1, -1, 3))  # (n, N, 3)

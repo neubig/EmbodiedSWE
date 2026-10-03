@@ -150,7 +150,7 @@ def main() -> None:
             step(1)
         scene.cover_drive[0] = 0.0
         settle_until(lambda: bool(scene.cover_closed()[0])
-                     and abs(float(scene.cover.data.root_lin_vel_w[0, 1])) < 0.02, 240)
+                     and abs(float(scene.cover.data.root_lin_vel_w.torch[0, 1])) < 0.02, 240)
         return bool(scene.cover_closed()[0])
 
     def press(force: float = 3.0, guard: int = 120) -> float:
@@ -247,7 +247,7 @@ def main() -> None:
             for _ in range(60):
                 scene.btn_drive[0] = force
                 step(1)
-                disp = float(scene._btn_home_z[0] - scene.button.data.root_pos_w[0, 2])
+                disp = float(scene._btn_home_z[0] - scene.button.data.root_pos_w.torch[0, 2])
                 dmin, dmax = min(dmin, disp), max(dmax, disp)
             reg = bool(scene._btn_pressed[0])
             scene.btn_drive[0] = 0.0
@@ -399,7 +399,7 @@ def main() -> None:
         rf0 = int(scene._refusals[0])
         press()
         accepted = bool(scene._running[0])
-        meas = float((scene.cup.data.root_pos_w[0, :2]
+        meas = float((scene.cup.data.root_pos_w.torch[0, :2]
                       - scene._spout_axis_xy()[0]).norm()) * 100
         print(f"[coffee-smoke]   off={off_cm:.1f}cm: accepted={accepted} "
               f"meas={meas:.2f}cm cup_ok={bool(scene.cup_under_spout()[0])} "

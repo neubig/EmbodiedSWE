@@ -519,7 +519,7 @@ class SpatulaFlipServeScene(BaseScene):
             half = (torch.rand(m, device=dev) * 2 - 1) * yaw_amp / 2
             st[:, 3] = torch.cos(half)
             st[:, 6] = torch.sin(half)
-            self.breads[name].write_root_state_to_sim(st, env_ids)
+            self.breads[name].write_root_state_to_sim(st, env_ids=env_ids)
 
         # --- pan: re-pin at its configured pose (kinematic write; yaw is a layout knob) ---
         half_p = math.radians(c.pan_yaw_deg) / 2
@@ -530,7 +530,7 @@ class SpatulaFlipServeScene(BaseScene):
         st[:, 3] = math.cos(half_p)
         st[:, 6] = math.sin(half_p)
         st[:, 0:3] += origin
-        self.pan.write_root_state_to_sim(st, env_ids)
+        self.pan.write_root_state_to_sim(st, env_ids=env_ids)
 
         # --- plate: kinematic pose write with xy jitter ---
         st = torch.zeros(m, 13, device=dev)
@@ -540,7 +540,7 @@ class SpatulaFlipServeScene(BaseScene):
         st[:, 2] = c.surface_z
         st[:, 3] = 1.0
         st[:, 0:3] += origin
-        self.plate.write_root_state_to_sim(st, env_ids)
+        self.plate.write_root_state_to_sim(st, env_ids=env_ids)
 
         # --- spatula: at rest on the bench, blade toward +x, jittered ---
         st = torch.zeros(m, 13, device=dev)
@@ -552,7 +552,7 @@ class SpatulaFlipServeScene(BaseScene):
         st[:, 3] = torch.cos(half)
         st[:, 6] = torch.sin(half)
         st[:, 0:3] += origin
-        self.spatula.write_root_state_to_sim(st, env_ids)
+        self.spatula.write_root_state_to_sim(st, env_ids=env_ids)
 
         # --- zero the latches / clocks / metrics; a fresh episode starts empty-handed ---
         for name in ("_lifted", "_wedged", "_flipped", "_loaded", "_loaded_pf", "_served",
@@ -567,9 +567,9 @@ class SpatulaFlipServeScene(BaseScene):
     # ----- kinematics helpers -------------------------------------------------------------------
     def _bread_tensors(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """(pos_w (N,P,3), quat (N,P,4), |lin_vel| (N,P)) for all breads, family order."""
-        pos = torch.stack([b.data.root_pos_w for b in self.breads.values()], dim=1)
-        quat = torch.stack([b.data.root_quat_w for b in self.breads.values()], dim=1)
-        vel = torch.stack([b.data.root_lin_vel_w.norm(dim=-1)
+        pos = torch.stack([b.data.root_pos_w.torch for b in self.breads.values()], dim=1)
+        quat = torch.stack([b.data.root_quat_w.torch for b in self.breads.values()], dim=1)
+        vel = torch.stack([b.data.root_lin_vel_w.torch.norm(dim=-1)
                            for b in self.breads.values()], dim=1)
         return pos, quat, vel
 
@@ -587,7 +587,7 @@ class SpatulaFlipServeScene(BaseScene):
         from isaaclab.utils.math import quat_apply
 
         ez = torch.tensor([0.0, 0.0, 1.0], device=self.env.device).expand(self.env.num_envs, 3)
-        return quat_apply(self.spatula.data.root_quat_w, ez)
+        return quat_apply(self.spatula.data.root_quat_w.torch, ez)
 
     def _bread_in_blade_frame(self) -> torch.Tensor:
         """(N, P, 3): bread centres in the SPATULA body frame (origin = blade-bottom centre).
@@ -597,15 +597,15 @@ class SpatulaFlipServeScene(BaseScene):
 
         pos, _q, _v = self._bread_tensors()
         n, p = pos.shape[0], pos.shape[1]
-        sq = self.spatula.data.root_quat_w[:, None, :].expand(n, p, 4).reshape(n * p, 4)
-        sp = self.spatula.data.root_pos_w[:, None, :]
+        sq = self.spatula.data.root_quat_w.torch[:, None, :].expand(n, p, 4).reshape(n * p, 4)
+        sp = self.spatula.data.root_pos_w.torch[:, None, :]
         return quat_apply_inverse(sq, (pos - sp).reshape(n * p, 3)).reshape(n, p, 3)
 
     # ----- instantaneous predicates ---------------------------------------------------------------
     def tool_lifted_now(self) -> torch.Tensor:
         """(N,) bool: the blade origin is above the work surface by more than `lift_gate`."""
         c = self.cfg
-        z = (self.spatula.data.root_pos_w - self.env_origins)[:, 2]
+        z = (self.spatula.data.root_pos_w.torch - self.env_origins)[:, 2]
         return z > c.surface_z + c.lift_gate
 
     def on_blade(self) -> torch.Tensor:
@@ -627,7 +627,7 @@ class SpatulaFlipServeScene(BaseScene):
         """(N, P) bool: bread resting flat (either face) on the pan's interior floor."""
         c = self.cfg
         pos, _q, _v = self._bread_tensors()
-        pp = self.pan.data.root_pos_w.unsqueeze(1)
+        pp = self.pan.data.root_pos_w.torch.unsqueeze(1)
         in_r = (pos[:, :, :2] - pp[:, :, :2]).norm(dim=-1) < c.pan_r_floor
         z_rel = (pos - self.env_origins.unsqueeze(1))[:, :, 2]
         resting = (z_rel - self._bread_h.unsqueeze(0) / 2 - c.pan_floor_z).abs() < c.rest_z_tol
@@ -644,7 +644,7 @@ class SpatulaFlipServeScene(BaseScene):
         """(N, P) bool: bread resting flat (either face) in the plate's recess, near centre."""
         c = self.cfg
         pos, _q, _v = self._bread_tensors()
-        pp = self.plate.data.root_pos_w.unsqueeze(1)
+        pp = self.plate.data.root_pos_w.torch.unsqueeze(1)
         near = (pos[:, :, :2] - pp[:, :, :2]).norm(dim=-1) < c.served_xy_frac * c.plate_r
         z_rel = (pos - self.env_origins.unsqueeze(1))[:, :, 2]
         resting = (z_rel - self._bread_h.unsqueeze(0) / 2 - c.plate_rest_z).abs() < c.rest_z_tol
@@ -672,9 +672,9 @@ class SpatulaFlipServeScene(BaseScene):
                          + torch.sqrt((1.0 - up_z.square()).clamp_min(0.0)) * radius)
         at_surface = (z_rel - half_extent_z - c.surface_z).abs() < c.rest_z_tol
 
-        pp = self.pan.data.root_pos_w.unsqueeze(1)
+        pp = self.pan.data.root_pos_w.torch.unsqueeze(1)
         over_pan = (pos[:, :, :2] - pp[:, :, :2]).norm(dim=-1) < c.pan_r_out
-        pl = self.plate.data.root_pos_w.unsqueeze(1)
+        pl = self.plate.data.root_pos_w.torch.unsqueeze(1)
         over_plate = (pos[:, :, :2] - pl[:, :, :2]).norm(dim=-1) < c.plate_r
         return at_surface & ~over_pan & ~over_plate & ~self.on_blade() & self.settled()
 
@@ -757,7 +757,7 @@ class SpatulaFlipServeScene(BaseScene):
         bodies = {"spatula": self.spatula, "pan": self.pan, "plate": self.plate,
                   **{n: b for n, b in self.breads.items()}}
         return {
-            "bodies": {n: b.data.root_state_w[env_ids].clone() for n, b in bodies.items()},
+            "bodies": {n: b.data.root_state_w.torch[env_ids].clone() for n, b in bodies.items()},
             "machine": {k: getattr(self, k)[env_ids].clone()
                         for k in ("_present", "_lifted", "_wedged", "_flipped", "_loaded",
                                   "_loaded_pf", "_served", "_since_loaded",
@@ -770,7 +770,7 @@ class SpatulaFlipServeScene(BaseScene):
         bodies = {"spatula": self.spatula, "pan": self.pan, "plate": self.plate,
                   **{n: b for n, b in self.breads.items()}}
         for n, b in bodies.items():
-            b.write_root_state_to_sim(state["bodies"][n], env_ids)
+            b.write_root_state_to_sim(state["bodies"][n], env_ids=env_ids)
         for k, v in state["machine"].items():
             getattr(self, k)[env_ids] = v
         self.grasp_weld.restore(state, env_ids)

@@ -140,8 +140,8 @@ def main() -> bool:
     # ----- oracle manipulation -----------------------------------------------------------------
     def cavity_target(cavity: int, local_z: float) -> tuple[torch.Tensor, torch.Tensor]:
         """World target position/quaternion for an upright egg in a base-frame cavity."""
-        body_pos = scene.carton.data.body_pos_w[:, scene._body_b]
-        body_quat = scene.carton.data.body_quat_w[:, scene._body_b]
+        body_pos = scene.carton.data.body_pos_w.torch[:, scene._body_b]
+        body_quat = scene.carton.data.body_quat_w.torch[:, scene._body_b]
         xy = c.cavity_centers[cavity]
         local = torch.tensor([xy[0], xy[1], local_z], device=device).expand(n, 3)
         return body_pos + quat_apply(body_quat, local), body_quat.clone()
@@ -151,8 +151,8 @@ def main() -> bool:
     ) -> None:
         """Visible kinematic carry with normalized quaternion interpolation."""
         egg = scene.eggs[name]
-        start_pos = egg.data.root_pos_w.clone()
-        start_quat = egg.data.root_quat_w.clone()
+        start_pos = egg.data.root_pos_w.torch.clone()
+        start_quat = egg.data.root_quat_w.torch.clone()
         # q and -q encode the same rotation; take the shorter interpolation hemisphere.
         target_quat = target_quat.clone()
         target_quat[(start_quat * target_quat).sum(dim=1) < 0] *= -1
@@ -166,12 +166,12 @@ def main() -> bool:
             state[:, 3:7] = quat
             # Counter one gravity kick while the state is re-pinned each physics step.
             state[:, 9] = 9.81 * env.sim.get_physics_dt()
-            egg.write_root_state_to_sim(state, all_ids)
+            egg.write_root_state_to_sim(state, env_ids=all_ids)
             step(1)
         released = torch.zeros(n, 13, device=device)
         released[:, 0:3] = target_pos
         released[:, 3:7] = target_quat
-        egg.write_root_state_to_sim(released, all_ids)
+        egg.write_root_state_to_sim(released, env_ids=all_ids)
 
     def drop_egg(name: str, cavity: int) -> bool:
         """Carry above a pocket, release through its opening, retry one honest drop if needed."""
@@ -201,11 +201,11 @@ def main() -> bool:
 
     def close_lid(steps: int = 120) -> None:
         """Kinematically swing the passive lid from open to closed through real contact."""
-        start = scene.carton.data.joint_pos[:, scene._lid_j].clone()
+        start = scene.carton.data.joint_pos.torch[:, scene._lid_j].clone()
         for index in range(steps):
             alpha = (index + 1) / steps
-            pos = scene.carton.data.joint_pos.clone()
-            vel = torch.zeros_like(scene.carton.data.joint_vel)
+            pos = scene.carton.data.joint_pos.torch.clone()
+            vel = torch.zeros_like(scene.carton.data.joint_vel.torch)
             pos[:, scene._lid_j] = start * (1 - alpha)
             scene.carton.write_joint_state_to_sim(pos, vel, env_ids=all_ids)
             step(1)
@@ -249,7 +249,7 @@ def main() -> bool:
         sideways = torch.zeros(n, 13, device=device)
         sideways[:, 0:3] = target_pos
         sideways[:, 3:7] = quat_mul(upright_quat, half_turn)
-        scene.eggs[egg_names[0]].write_root_state_to_sim(sideways, all_ids)
+        scene.eggs[egg_names[0]].write_root_state_to_sim(sideways, env_ids=all_ids)
         env.iscene.update(0.0)
         report("negative: sideways")
         check(
