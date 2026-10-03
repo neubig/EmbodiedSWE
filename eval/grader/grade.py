@@ -28,6 +28,11 @@ GRADERS_DIR = Path("/graders")
 OUT = Path("/out")
 
 
+def _lab3_app_kwargs(enable_cameras: bool) -> dict:
+    """Qualified Isaac Lab 3 EA launcher configuration for grading."""
+    return {"headless": False, "enable_cameras": enable_cameras, "visualizer": ["kit"]}
+
+
 def load_graders(grader_dir: Path) -> dict:
     """Import the suite's grader package from a path outside the /bench tree."""
     import importlib.util
@@ -162,15 +167,12 @@ def main() -> None:
 
     from isaaclab.app import AppLauncher
 
-    if args.cameras and not args.render:
-        # isaaclab develop (Newton): rendering is pumped by VISUALIZERS, and only an active kit
-        # visualizer makes the framework create MPM particle points and sync Newton body
-        # transforms + deformable meshes into Fabric for RTX (measured 2026-09-05: without it the
-        # final frame showed the spawn-pose robot as a heap and no dough at all). Same launch as
-        # the suite's own recording smokes: headless + kit visualizer + cameras.
-        app = AppLauncher(headless=True, enable_cameras=True, visualizer=["kit"]).app  # noqa: F841
-    else:
-        app = AppLauncher(headless=True, enable_cameras=args.render).app  # noqa: F841 — before isaaclab.sim
+    # Lab 3 EA requires the non-headless Kit experience to load the viewport/visualizer extension
+    # set. Its headless experience rejects the Kit visualizer and can pass ProxyArray objects into
+    # Warp COM-pose kernels. This is the same launch mode as the qualified task smoke.
+    app = AppLauncher(  # noqa: F841 — must exist before isaaclab.sim imports
+        **_lab3_app_kwargs(enable_cameras=args.cameras or args.render)
+    ).app
 
     import robobench
 

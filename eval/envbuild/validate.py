@@ -10,6 +10,7 @@ Principle: no bundle ships unbooted.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -20,6 +21,7 @@ VENV_PY = REPO / ".venv" / "bin" / "python"
 
 _D0, _D1 = "<<DESCRIBE>>", "<<END_DESCRIBE>>"
 _MISSING = "<<MISSING_ASSETS>>"
+_LAB3_APP_KWARGS = {"headless": False, "visualizer": ["kit"]}
 
 
 class MissingAssets(Exception):
@@ -28,6 +30,22 @@ class MissingAssets(Exception):
     def __init__(self, paths: list[str]):
         super().__init__("unresolved USD references:\n  " + "\n  ".join(paths))
         self.paths = paths
+
+
+def _validation_subprocess_env(tree: Path) -> dict[str, str]:
+    """Minimal boot environment plus the container-injected GPU loader path."""
+    env = {
+        "PYTHONPATH": str(tree),
+        "HOME": str(Path.home()),
+        "PATH": "/usr/bin:/bin",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "OMNI_KIT_ACCEPT_EULA": "YES",
+        "ACCEPT_EULA": "Y",
+        "PRIVACY_CONSENT": "Y",
+    }
+    if library_path := os.environ.get("LD_LIBRARY_PATH"):
+        env["LD_LIBRARY_PATH"] = library_path
+    return env
 
 
 def boot_preset(tree: Path, preset: str, seed: int = 0) -> str:
@@ -45,7 +63,9 @@ try:  # pink_ik presets need pinocchio imported BEFORE AppLauncher (robobench/co
 except ImportError as exc:
     print('[validate] pinocchio not importable (' + str(exc) + '): a pink_ik preset will fail to boot', flush=True)
 from isaaclab.app import AppLauncher
-app = AppLauncher(headless=True).app
+# Lab 3 EA requires the Kit visualizer's app/extension set for PhysX ProxyArray reads.
+# Its headless experience omits viewport modules and fails both visualizer creation and COM-pose kernels.
+app = AppLauncher(**{_LAB3_APP_KWARGS!r}).app
 import os
 import robobench
 assert robobench.__file__.startswith('{tree}'), 'wrong robobench: ' + robobench.__file__
@@ -99,11 +119,8 @@ os._exit(0)
     r = subprocess.run(
         [str(py), "-c", code],
         cwd=str(tree),  # cwd MUST NOT contain the real robobench (sys.path shadows PYTHONPATH)
-        env={
-            "PYTHONPATH": str(tree), "HOME": str(Path.home()), "PATH": "/usr/bin:/bin",
-            "PYTHONDONTWRITEBYTECODE": "1",  # keep the validated tree byte-identical to its hash
-            "OMNI_KIT_ACCEPT_EULA": "YES", "ACCEPT_EULA": "Y", "PRIVACY_CONSENT": "Y",
-        },
+        # Keep the tree/hash environment minimal, but retain Apptainer's NVIDIA loader injection.
+        env=_validation_subprocess_env(tree),
         capture_output=True, text=True, timeout=600,
     )
     if "BOOT_OK" not in r.stdout:
@@ -130,7 +147,7 @@ os._exit(0)
         missing += [p for p in dict.fromkeys(named) if not Path(p).exists()]
         if missing:
             raise MissingAssets(missing)
-        errs = "\n".join(l for l in (r.stdout + r.stderr).splitlines() if "rror" in l)[-2000:]
+        errs = "\n".join(line for line in (r.stdout + r.stderr).splitlines() if "rror" in line)[-2000:]
         raise SystemExit(f"BOOT CHECK FAILED for '{preset}' (missing asset? bad preset?):\n{errs}")
     describe = r.stdout.split(_D0, 1)[1].split(_D1, 1)[0].strip()
     print(f"[validate] BOOT_OK — env built + reset; describe() harvested ({len(describe)} chars)")

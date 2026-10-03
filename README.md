@@ -81,6 +81,12 @@ round-trip, and `BulbAssemblyGrader` records/verdicts correctly. Run
 The grader is privileged-state based and does **not** consume camera pixels; the task still declares
 `front` and Franka `wrist` cameras for observation/data-generation pipelines.
 
+The real environment-builder boot check and grading entrypoint use Lab 3's non-headless Kit
+visualizer experience, even on a displayless compute node. The EA headless experience omits viewport
+extensions required by this visualizer and can feed `ProxyArray` wrappers to Warp COM-pose kernels.
+The builder's validation subprocess also retains the container-injected `LD_LIBRARY_PATH` so NVIDIA
+libraries remain discoverable without modifying the image's global loader cache.
+
 A separate `assembly.nut_thread` scene-physics smoke has also passed. These results do not validate
 every registered task or embodiment. In particular, the remaining assembly variants, packing,
 puzzle, cutting, locomanip, deformable/Newton, multi-environment batches, non-Franka robots,
