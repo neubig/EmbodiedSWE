@@ -1,5 +1,30 @@
 # EmbodiedSWE: Coding Agents for Long-Horizon Dexterous Robotics
 
+## About this migration fork
+
+This is [neubig/EmbodiedSWE](https://github.com/neubig/EmbodiedSWE), a fork of
+[EmbodiedSWE/EmbodiedSWE](https://github.com/EmbodiedSWE/EmbodiedSWE).
+Its `main` branch targets **Isaac Sim 6.1 / Isaac Lab 3.0 Early Access**,
+not the upstream reference runtime. The original benchmark description and
+broader workflows below are retained; their full migration is not validated.
+
+Validated: clean native bulb/Franka/OSC environment build and a real 20-step
+controller through the native grader and unmodified Harbor, with valid zero
+rewards and no exceptions. This demonstrates execution, not task-solving success
+or full-suite/cross-version parity. Newton/deformable and multi-stage Harbor
+workflows are not qualified by this validation.
+
+For portable dataset generation followed by standard `harbor run`, use
+[llm-for-robotics-benchmark](https://github.com/neulab/llm-for-robotics-benchmark#embodiedswe-when-a-gpu-is-available).
+Use its pinned source revision for reproducibility. On Babel, NHC kills the
+grader's subordinate host UID as unauthorized when a run overlaps a health check;
+see the integration repository's remediation guidance before unattended runs.
+This requires administrator-approved cluster compatibility, not a Harbor patch.
+
+*Migration implementation and this fork-specific guidance were authored by
+OpenHands, an AI agent, on behalf of Graham Neubig.*
+
+
 <p align="center">
   <img src="docs/media/overview.jpg" width="100%" alt="EmbodiedSWE overview">
 </p>
@@ -30,7 +55,8 @@ Requirements: Linux, an NVIDIA GPU with a CUDA 12.x driver, Apptainer, and
 this migration and creates a repository-local runtime; it does not modify a shared environment.
 
 ```bash
-git clone <this repo> && cd <this repo>
+git clone https://github.com/neubig/EmbodiedSWE.git
+cd EmbodiedSWE
 export ISAAC_SIM_SIF=/path/to/isaac-sim-6.1.0.sif
 export ISAACLAB_ARCHIVE=/path/to/IsaacLab-3.0.0-EA.tar.gz
 ./scripts/bootstrap_isaaclab_6_1.sh
